@@ -1,8 +1,8 @@
-load('fda')
-load('Matrix')
-load('fields')
-load('spam')
-load('grid')
+#load('fda')
+#load('Matrix')
+#load('fields')
+#load('spam')
+#load('grid')
 
 cca_wrapper <- function(dset1, dset2){
 
@@ -30,7 +30,8 @@ cca_wrapper <- function(dset1, dset2){
     n_survey_vars <- dim(dset2)[2]
 
     ps <- p.asym(rho = cca_res$cor, n_obs, n_task_vars, n_survey_vars, tstat = "Wilks")
-    nlines <- sum(ps$p.value < 0.05)
+    nlines <- 2 #sum(ps$p.value < 0.05)
+    if (nlines < 1) stop('nlines < 1 (no significant correlations)')
         
     # U Coefficients Plot:
     plotchar <- seq(18,18+nlines,1)
