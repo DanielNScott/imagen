@@ -22,3 +22,7 @@ These pieces will ideally be used to...
 
 ## References ##
 TBC.
+
+## Other Resources ##
+Rik Henson fMRI Notes:
+http://imaging.mrc-cbu.cam.ac.uk/imaging/DesignEfficiency

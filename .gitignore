@@ -1,3 +1,5 @@
 .ipynb*
 .Rhistory
+.RData
 .bashrc
+data/

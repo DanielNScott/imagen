@@ -129,7 +129,7 @@ def main():
         #print( rt[rt != -999].quantile([0, 0.25, 0.5, 0.75, 1]) )
 
         # Save the current data into the output dataframe
-        tmp.sort_values(col_names, inplace=True)
+        # tmp.sort_values(col_names, inplace=True)
         df = pd.concat([df, tmp])
 
         print('Finished file: ' + file)
