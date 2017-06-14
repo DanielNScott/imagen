@@ -8,12 +8,12 @@ There is a great deal of task, behavioral, clinical, and genetic data which need
  - imputation as appropriate
  - a missingness model
  - a-priori theoretical feature selection (i.e. pruning to useful stuff)
- - modelling (e.g. BEESTS, HDDM, LATER) 
+ - modelling (e.g. BEESTS, HDDM, LATER)
 
 Additionally, there is a great deal of fMRI data, which needs...
  - cleaning / preprocessing
  - standard regressor & statistical parametric map analysis
- - conversion to a form suitable for the ancestral graph analysis
+ - conversion to a form suitable for ancestral graph analysis
 
 These pieces will ideally be used to...
  - determine neurological endophenotypes of impulsivity linked to fMRI
@@ -22,6 +22,11 @@ These pieces will ideally be used to...
 
 ## References ##
 TBC.
+
+## Directories ##
+preproc  - code for aggregating data from files, etc.
+analysis - code for running e.g. CCAs
+plotting - code for plotting
 
 ## Other Resources ##
 Rik Henson fMRI Notes:

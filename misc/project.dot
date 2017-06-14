@@ -1,0 +1,25 @@
+digraph{
+   sst_task -> sst_data
+   sst_task -> fmri_betas
+
+   sst_data -> sst_params [label="BEESTS"]
+   mid_data -> mid_params [label="LATER(ish)"]
+
+   genes -> data
+   sst_params -> data [label="read_sst_params()"]
+   mid_params -> data
+   other_tasks -> data
+   su_behavior -> data
+   clinical    -> data
+   fmri_betas  -> data
+   mri         -> data
+
+   data       -> clean_data  [label="pre_process()"]
+   clean_data -> filled_data [label="MICE()"]
+
+   filled_data -> beta_ccas
+   filled_data -> stn_str_high_low
+   filled_data -> ancestral_graphs
+   filled_data -> dim_reduction
+
+}
