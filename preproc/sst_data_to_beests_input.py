@@ -18,8 +18,8 @@ ipdb.set_trace()
 def main():
 
   # Where is the list of subjects' data?
-  train_file = '/home/dan/documents/lncc/synthetic data/sst_round_2/safe_train_data.csv'
-  test_file  = '/home/dan/documents/lncc/synthetic data/sst_round_2/safe_test_data.csv'
+  train_file = '/home/dan/projects/imagen/data/synthetic data/safe_train_data.csv'
+  test_file  = '/home/dan/projects/imagen/data/synthetic data/safe_test_data.csv'
 
   # Read the list of subjects who will be in 'training' and 'test' sets
   subj_list_train = pd.read_csv(train_file, sep=',', usecols=['Subject'])
@@ -43,7 +43,7 @@ def main():
             "Response Outcome"]
 
   # Location of the csv files to be read:
-  data_dir = '/home/dan/documents/lncc/From Catherine/Round 2/SST/SST_BL_behavioraldata'
+  data_dir = '/home/dan/projects/imagen/data/From Catherine/SST/SST_BL_behavioraldata'
 
   # For the iterator below...
   test_tuple  = (df_test , subj_list_test , 'test' )
@@ -132,14 +132,14 @@ def main():
         # tmp.sort_values(col_names, inplace=True)
         df = pd.concat([df, tmp])
 
-        print('Finished file: ' + file)
+        print('Finished file: ' + file.split('/')[-1] + ' (file num ' + str(f_num) + ')')
 
       except:
-        f_num = f_num + 1
-        print('Failure to read or process file: ' + file)
+        print('Failure to read or process file: ' + file.split('/')[-1])
         continue
 
     # Once everything is loaded into the output dataframe, save it as a csv.
+    print('Saving sst_data_' + file_label + '.csv')
     df.to_csv('sst_data_' + file_label + '.csv', index=False)
 
 
