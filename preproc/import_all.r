@@ -147,8 +147,15 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
   activations <- as.matrix(activations)
   trs <- seq(1,444)
 
+  # If we're looking at just the rIFG (a QC check)...
+  if (TRUE) {
+    rIFG_voxels <- read.csv(file = '../data/rIFGClusterRows.csv', header = FALSE)
+    activations <- activations[, as.integer(rIFG_voxels)]
+    activations <- cbind(activations, rowMeans(activations))
+  }
+
   # Save the fmri_series data (for raw <-> processed comparison)
-  saveRDS(activations, 'activations.rds')
+  #saveRDS(activations, 'activations.rds')
 
   # activations <- activations[,1:3]
   # Z-Score the data for each participant
@@ -236,6 +243,7 @@ import_all <- function(){
   taskdata_dir   <- paste(base_dir, task, '_', visit, '_behavioraldata/', sep='')
   timeseries_dir <- paste(base_dir, visit, '_VoxelLevel_', task, '/', sep='')
 
+  source('fit_fmri_glm.r')
   for (id in subj_list[1:5]) {
     fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir)
     sst_betas <- fit_fmri_glm(fmri_data)
