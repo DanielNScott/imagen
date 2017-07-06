@@ -1,6 +1,18 @@
+# This script runs everything.
 
-data <- pre_process(re_read = TRUE, shuffle = FALSE, n_imputed = 30, max_iters = 1000)
+source('./preproc/import_all.r')
+data <- import_all()
 
-analysis <- get_analysis()
+source('./preproc/quality_control.r')
+data <- quality_control(data)
 
-plot_all(data, analysis)
+source('./preproc/impute_data.r')
+data <- impute_data(data)
+
+source('./analysis/analyze_data.r')
+analysis <- analyze_data(data)
+
+source('./plotting/plot_results.r')
+plot_results(data, analysis)
+
+# The end.

@@ -1,15 +1,22 @@
 digraph{
    sst_task -> sst_data
-   sst_task -> sst_fmri_data [label="import_fmri(), fmri_quality_control()"]
+   sst_task -> sst_fmri_data  [label="import_fmri(), fmri_quality_control()"]
    sst_task -> sst_fmri_betas [label="get_fmri_betas()"]
 
    sst_fmri_data -> sst_fmri_betas [label="get_fmri_betas()"]
-   sst_fmri_data -> sst_ag [label="get_ancestral_graphs()"]
+   sst_fmri_data -> sst_ag         [label="get_ancestral_graphs()"]
+
+   mid_task -> mid_data
+   mid_task -> mid_fmri_data
+   mid_task -> mid_fmri_betas
+
+   mid_fmri_data -> mid_fmri_betas [label="get_fmri_betas()"]
+   mid_fmri_data -> mid_ag         [label="get_ancestral_graphs()"]
 
    sst_data -> sst_params [label="BEESTS"]
    mid_data -> mid_params [label="LATER(ish)"]
 
-   genes -> data [label="no script yet yet"]
+   genes -> data [label="import_all::import_generic()"]
 
    sst_params  -> data [label="import_all::read_sst_params()"]
    mid_params  -> data [label="import_all::read_mid_params()"]

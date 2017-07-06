@@ -3,3 +3,4 @@
 .RData
 .bashrc
 data/
+*.rds

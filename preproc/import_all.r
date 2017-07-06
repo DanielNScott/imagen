@@ -63,8 +63,8 @@ read_mid_param_file <- function(filename){
 
     subj_msk <- mid_params['Subject'] == subject
 
-    mid_params[subj_msk, paste(param,'Expectation',sep=' ')] <- mid_params_raw[row,'Expectation']
-    mid_params[subj_msk, paste(param,'Variance'   ,sep=' ')] <- mid_params_raw[row,'Variance'   ]
+    mid_params[subj_msk, paste(param,'Expectation',sep = ' ')] <- mid_params_raw[row,'Expectation']
+    mid_params[subj_msk, paste(param,'Variance'   ,sep = ' ')] <- mid_params_raw[row,'Variance'   ]
   }
   return(mid_params)
 }
@@ -78,11 +78,11 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
 
   # Set filename prefixes and suffixes
   task_pfx <- 'ss_'
-  fmri_sfx <- paste('MaskDumpOutput',sep='')
+  fmri_sfx <- paste('MaskDumpOutput',sep = '')
 
   # Specify ordinal coding for trial outcome
-  task_key  <- c("GO_SUCCESS"="1", "GO_FAILURE"='2', 'STOP_SUCCESS'='3', 'STOP_FAILURE'='4',
-                   'GO_TOO_LATE'='5','GO_WRONG_KEY_RESPONSE'='6', 'STOP_TOO_EARLY_RESPONSE'='7')
+  task_key  <- c("GO_SUCCESS" = "1", "GO_FAILURE" = '2', 'STOP_SUCCESS' = '3', 'STOP_FAILURE' = '4',
+                   'GO_TOO_LATE' = '5','GO_WRONG_KEY_RESPONSE' = '6', 'STOP_TOO_EARLY_RESPONSE' = '7')
 
   #failed_fmri_reads <- 0
   #failed_task_reads <- 0
@@ -93,15 +93,15 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
   # Convert subject id to padded string & read
   subj_id_str <- formatC(subj_id, width = 12, format = 'd', flag = '0')
 
-  fmri_fname <- paste(subj_id_str, '_', fmri_sfx, sep='')
-  task_fname <- paste(task_pfx, subj_id_str, '.csv', sep='')
+  fmri_fname <- paste(subj_id_str, '_', fmri_sfx, sep = '')
+  task_fname <- paste(task_pfx, subj_id_str, '.csv', sep = '')
 
-  fmri_full_name <- paste(timeseries_dir, fmri_fname, sep='')
-  task_full_name <- paste(taskdata_dir  , task_fname, sep='')
+  fmri_full_name <- paste(timeseries_dir, fmri_fname, sep = '')
+  task_full_name <- paste(taskdata_dir  , task_fname, sep = '')
 
   # Reading the fmri Series
   if (file.exists(fmri_full_name)) {
-    activations <- read.csv(file=fmri_full_name, header=FALSE, sep=' ')
+    activations <- read.csv(file = fmri_full_name, header = FALSE, sep = ' ')
     activations <- t(activations[,4:447])
     rownames(activations) <- NULL
     print(paste('Successful read of ', fmri_fname))
@@ -133,7 +133,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
 
   # Extract the trial times and outcomes
   task_times <- task_data['Trial.Start.Time..Onset.'][,1]
-  task_data['Response.Outcome'][,1] <- revalue(task_data['Response.Outcome'][,1], task_key, warn_missing=FALSE)
+  task_data['Response.Outcome'][,1] <- revalue(task_data['Response.Outcome'][,1], task_key, warn_missing = FALSE)
   task_outcome <- as.numeric(as.character(task_data['Response.Outcome'][,1]))
 
 
@@ -145,12 +145,12 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
 
   # Format the fmri data as a dataframe and add TRs
   activations <- as.matrix(activations)
-  trs <- seq(1,444)
+  trs <- as.vector(seq(1,444))
 
   # If we're looking at just the rIFG (a QC check)...
   if (TRUE) {
     rIFG_voxels <- read.csv(file = '../data/rIFGClusterRows.csv', header = FALSE)
-    activations <- activations[, as.integer(rIFG_voxels)]
+    activations <- activations[, as.logical(rIFG_voxels)]
     activations <- cbind(activations, rowMeans(activations))
   }
 
@@ -159,7 +159,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
 
   # activations <- activations[,1:3]
   # Z-Score the data for each participant
-  mean <- colMeans(activations, na.rm=TRUE)
+  mean <- colMeans(activations, na.rm = TRUE)
   std  <- apply(activations, 2, sd, na.rm = TRUE)
 
   activations <- sweep(activations, 2, mean, FUN = "-")
@@ -170,20 +170,69 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir) {
   activations[spike_inds] <- 0
 
   # Drift correction
-  polyfit     <- lm( as.matrix(activations) ~ poly( as.vector(trs), 2))
+  polyfit     <- lm( as.matrix(activations) ~ poly(trs, 2))
   activations <- activations - polyfit$fitted.values
 
   # High-Pass Filter
-  bf <- signal::butter(2, 1/128, type="high")
+  bf <- signal::butter(2, 1/128, type = "high")
   filter <- function(x) {signal::filtfilt(bf, x)}
   activations <- apply(activations, 2, filter)
 
   # Should drift correct and Z-Score again after filtering
 
   data <- list(acts = activations, task_outcome = task_outcome, task_times = task_times, task_key = task_key)
-  return (data)
+  return(data)
 
 } # EOF
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+#                Subroutine for reading the genetic data
+# ------------------------------------------------------------------------------ #
+import_genes <- function(dose_file, rs_file, subj_ids){
+
+  # Read the dosages
+  flog.info('Reading gene dosages from file: %s', dose_file)
+  dose_data <- data.frame( read.csv(file = dose_file, header = TRUE) );
+
+  # Read the file indicating which genes to keep
+  flog.info('Reading list of genes to keep from file: %s', rs_file)
+  rs_list <- data.frame( read.csv(file = rs_file, header = TRUE) )
+
+  # Subset the gene data for dopamine genes and the appropriate subjects
+  dopamine_genes <- intersect(rs_list$gene, names(dose_data))
+  dose_data <- dose_data[, c('Subject', dopamine_genes) ]
+  dose_data <- dose_data[dose_data$Subject %in% subj_ids$Subject, ]
+
+  return(dose_data)
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+#                Subroutine for reading generic data
+# ------------------------------------------------------------------------------ #
+import_generic <- function(data_file, subj_ids){
+
+  data <- c()
+
+  # Read the dosages
+  flog.info('Reading generic file: %s', data_file)
+  raw <- data.frame( read.csv(file = data_file, header = TRUE) );
+
+  # Subset the gene data for dopamine genes and the appropriate subjects
+  raw <- raw[raw$Subject %in% subj_ids$Subject, ]
+
+  # Save names to an index. Have to remove path and suffix
+  names <- list()
+  subset_name <- gsub( '.+/', '', gsub('_.+', '', data_file) )
+  names[subset_name] <- list(setdiff(colnames(raw), c('Subject', 'Gender')))
+
+  data$raw   <- raw
+  data$names <- names
+  return(data)
+}
 # ------------------------------------------------------------------------------ #
 
 
@@ -194,7 +243,7 @@ import_all <- function(){
   library('futile.logger')
 
   # Where is data located, and who are the subjects?
-  base_dir      <- '/gpfs/home/dscott3/projects/imagen/data/'
+  base_dir      <- '/home/dan/projects/imagen/data/'
   sbx_subj_list <- paste(base_dir, 'sandbox_subject_list.csv', sep = '')
 
   # Read subject list & demarcate test/training split
@@ -208,11 +257,10 @@ import_all <- function(){
   ### ---------------------- ###
   # Files to read
   # NOTE: This is just reading the test data twice for debugging purposes!!
-  sst_params_files <- paste(base_dir, c('sst_data_test/parameters1.csv', 'sst_data_test/parameters1.csv'), sep = '')
-  mid_params_file  <- paste(base_dir, 'MIDT Subject Fits/MIDT_SubjectFits_BL_All.csv', sep = '')
+  sst_params_files <- paste(base_dir, c('test_parameters.csv', 'train_parameters.csv'), sep = '')
 
   # Read the SST parameters files
-  subj_ids_1   <- as.matrix(subj_list[data$train_inds, 'Subject'])
+  subj_ids_1   <- as.matrix(subj_list[data$test_inds, 'Subject'])
   sst_params_1 <- read_sst_param_file(sst_params_files[1])
   colnames(subj_ids_1) <- 'Subject'
 
@@ -222,13 +270,16 @@ import_all <- function(){
 
   # Package into an data matrix
   data$raw <- rbind( cbind(subj_ids_1, sst_params_1), cbind(subj_ids_2, sst_params_2) )
+  data$names$sst <- setdiff(colnames(sst_params_1), c('Subject'))
 
   # Read the MID fit file in:
+  mid_params_file  <- paste(base_dir, 'MIDT_SubjectFits_BL_All.csv', sep = '')
   flog.info('Reading MID parameters...')
   mid_params <- read_mid_param_file(mid_params_file)
 
   # Match rows by 'Subject' column
-  tmp <- merge(sst_params, mid_params, by = "Subject")
+  data$raw <- merge(data$raw, mid_params, by = "Subject", all = TRUE)
+  data$names$mid <- setdiff(colnames(mid_params), c('Subject'))
 
 
   ### ---------------------- ###
@@ -238,16 +289,19 @@ import_all <- function(){
   #
   # Reading in more than one subjects complete FMRI data at a time would be
   # impossibly memory intensive
-  visit <- 'BL'
-  task  <- 'SST'
-  taskdata_dir   <- paste(base_dir, task, '_', visit, '_behavioraldata/', sep='')
-  timeseries_dir <- paste(base_dir, visit, '_VoxelLevel_', task, '/', sep='')
+#  visit <- 'BL'
+#  task  <- 'SST'
+#  taskdata_dir   <- paste(base_dir, task, '_', visit, '_behavioraldata/', sep = '')
+#  timeseries_dir <- paste(base_dir, visit, '_VoxelLevel_', task, '/', sep = '')
 
-  source('fit_fmri_glm.r')
-  for (id in subj_list[1:5]) {
-    fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir)
-    sst_betas <- fit_fmri_glm(fmri_data)
-  }
+  #source('fit_fmri_glm.r')
+#  for (id in subj_list[c(1:2, 4:10),]) {
+#    fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir)
+#    sst_betas <- fit_fmri_glm(fmri_data)
+
+#    assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
+#    assign(paste('subj_', id, 'sst_data', sep = ''), sst_betas)
+#  }
 
   #jpeg('rplot.jpg')
   #plot(x,y)
@@ -258,18 +312,44 @@ import_all <- function(){
   #mid_fmri_data <- import_fmri()
   #mid_betas <- fit_fmri_glm(mid_fmri_data)
 
-
-  ### DOES NOT EXIST YET
   ### ---------------------- ###
   ###   Clinical & Genetic   ###
   ### ---------------------- ###
   #clinical_data <- import_clinical()
-  #genetic_data  <- import_genetic()
 
+  gene_file <- paste(base_dir, 'snps_dosage.csv', sep = '')
+  gene_list <- paste(base_dir, 'snps_dopamine_list.csv', sep = '')
+  gene_data <- import_genes(gene_file, gene_list, subj_list)
+
+  # Match rows by 'Subject' column
+  data$raw <- merge(data$raw, gene_data, by = "Subject", all = TRUE)
+  data$names$genes <- setdiff(colnames(gene_data), c('Subject'))
+
+
+  ### ---------------------- ###
+  ###   Other Instruments    ###
+  ### ---------------------- ###
+  file_list <- c('DelayDiscounting_K_14.csv', 'ESPAD_Life_14.csv', 'CANTAB_14.csv', 'Age_IQ_Etc_14.csv',
+                 'SURPS_14.csv', 'DAWBA_SDQ_14.csv', 'TCI_14.csv', 'Misc_14.csv')
+  for (file in file_list) {
+    file_to_import <- paste(base_dir, file, sep = '')
+    file_data <- import_generic(file_to_import, subj_list)
+
+    # Match rows by 'Subject' column
+    data$raw <- merge(data$raw, file_data$raw, by = "Subject", all = TRUE)
+
+    # Add names to groupings
+    data$names[names(file_data$names)] <- file_data$names
+  }
 
   ### NEEDS UPDATE
   # Convert annoying names into better ones
   #data <- replace_bad_names(sst_params, mid_params, raw_df)
+
+
+  ### Generate additional summary fields and the like
+  source('gen_addnl_flds.r')
+  data <- gen_addnl_flds(data)
 
   return(data)
 }

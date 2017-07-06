@@ -2,6 +2,7 @@ fit_fmri_glm <- function(fmri_data) {
 
   # Contrast groupings
   conditions <- as.integer(unique(fmri_data$task_key))
+  cnames     <- names(fmri_data$task_key)
   n_conds    <- length(conditions)
 
   # fMRI analysis functions
@@ -54,19 +55,13 @@ fit_fmri_glm <- function(fmri_data) {
     #print(conv_regs)
     onset_list[[cond]] <- onsets
   }
-  #print(bad_cond)
-  #print(conv_regs)
 
   # Create design matrix w/ 2nd deg drift, remove any bad conditions
   design_mat <- fmri.design(conv_regs[, setdiff(1:7, bad_cond)], order = 2)
-  #colnames(design_mat) <- c(cnames[setdiff(1:7, bad_cond)], 'Intercept', 'Linear Drift', 'Sq. Drift')
+  colnames(design_mat) <- c(cnames[setdiff(1:7, bad_cond)], 'Intercept', 'Linear Drift', 'Sq. Drift')
 
-  #design_mat <- fmri.design(conv_regs, order = 2)
-  #colnames(design_mat) <- c(cnames, 'Intercept', 'Linear Drift', 'Sq. Drift')
-
-  #print(design_mat)
-  #design_mat <- design_mat[,setdiff(1:7, bad_cond)]
-  #print(design_mat)
+  # Remove the unnecessary intercept column (which will otherwise be identical to col. 1)
+  design_mat <- design_mat[, 1:(dim(design_mat)[2] - 2) ]
 
   # Clean up conv_regs a bit, append 'TR' column, label things
   conv_regs[,bad_cond] <- integer(n_scans)
@@ -77,7 +72,7 @@ fit_fmri_glm <- function(fmri_data) {
   linear_model <- lm(fmri_data$acts ~ design_mat)
 
   # Save the linear model, list of conds removed,
-  lm_list <- list(lm=linear_model, bad_cond=bad_cond, conv_regs=conv_regs, onsets = onset_list)
+  lm_list <- list(lm = linear_model, bad_cond = bad_cond, conv_regs = conv_regs, onsets = onset_list)
 
   return(lm_list)
 
