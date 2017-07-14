@@ -140,7 +140,7 @@ import_all <- function(loc){
   data$train_inds <- 1:198
   data$test_inds  <- 199:396
 
-  if (FALSE) {
+  if (TRUE) {
   ### ---------------------- ###
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
@@ -189,7 +189,7 @@ import_all <- function(loc){
   } else {
     # For local testing:
     taskdata_dir   <- paste(base_dir, '/BL_SST_task/', sep = '')
-    timeseries_dir <- paste(base_dir, '/BL_SST_fmri/', sep = '')
+    timeseries_dir <- paste(base_dir, '/BL_SST_fMRI/', sep = '')
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 

@@ -68,7 +68,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
 
   # If we're looking at just the rIFG (a QC check)...
   if (TRUE) {
-    rIFG_voxels <- read.csv(file = '../data/fmri/rIFGClusterRows.csv', header = FALSE)
+    rIFG_voxels <- read.csv(file = '../data/rIFGClusterRows.csv', header = FALSE)
     activations <- activations[, as.logical(rIFG_voxels)]
     activations <- cbind(activations, rowMeans(activations, na.rm = TRUE))
   }
@@ -201,27 +201,28 @@ fit_fmri_glm <- function(fmri_data) {
   colnames(design_mat) <- c(cnames, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   cnames <- colnames(design_mat)
 
-  # Set up processor pool for core-level SIMD parallelism:
+  # Indicate pool for core-level SIMD parallelism:
+  # Note: Using makeClust() here will break this on some clusters which do not allow
+  #       socket assignment and the like. mclapply defaults to fork-based dispatching.
   library(parallel)
   cores <- detectCores()
-  clust <- makeCluster(cores[1] - 1)
-  flog.info('Using %d cores', cores[1] - 1)
+  flog.info('Using %d cores', cores[1])
 
   # Specifics for fitting the linear model with robust regression
+  library(robust)
   n_voxels <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
   coefficients <- matrix(NA, n_regressors, n_voxels)
 
-  # Function to apply to each column of the activation data
-  fit_cols <- function(x) {lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]}
+  # Function to apply lmRob (named y here) to each column of the activation data
+  fit_cols <- function(x) {capture.output(
+    lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
+  )}
 
   # Actually do it...
   time <- system.time(
     coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols)
   )
-
-  # Stop cluster
-  stopCluster(clust)
   flog.info('Computation time for voxel betas:')
   print(time)
 
