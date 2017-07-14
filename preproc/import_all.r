@@ -140,6 +140,7 @@ import_all <- function(loc){
   data$train_inds <- 1:198
   data$test_inds  <- 199:396
 
+  if (FALSE) {
   ### ---------------------- ###
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
@@ -169,7 +170,7 @@ import_all <- function(loc){
   data$raw <- merge(data$raw, mid_params, by = "Subject", all = TRUE)
   data$names$mid <- setdiff(colnames(mid_params), c('Subject'))
 
-
+  }
   ### ---------------------- ###
   ###       FMRI Stuff       ###
   ### ---------------------- ###
@@ -192,7 +193,7 @@ import_all <- function(loc){
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  source('fmri_routines.r')
+  #source('fmri_routines.r')
   too_late      <- double(396)
   sst_contrasts <- double(396)
   for (id in data$subj_list[c(3),] ) {
