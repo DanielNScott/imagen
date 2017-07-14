@@ -201,18 +201,31 @@ fit_fmri_glm <- function(fmri_data) {
   colnames(design_mat) <- c(cnames, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   cnames <- colnames(design_mat)
 
-  # Fit the linear model with robust regression
+  # Set up processor pool for multi-threading
+  library(foreach)
+  library(doParallel)
+
+  cores <- detectCores()
+  clust <- makeCluster(cores[1]-1)
+
+  # Setup for fitting the linear model with robust regression
   #linear_model <- lm(fmri_data$acts ~ design_mat)
   library(robust)
+
   n_voxels <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
   coefficients <- matrix(NA, n_regressors, n_voxels)
-  for (voxel in 1:n_voxels) {
+
+  registerDoParallel(clust)
+  foreach (voxel in 1:n_voxels) %dopar% {
     flog.info('Robust LM fit to voxel %d of %d', voxel, n_voxels)
     capture.output(model <- lmRob(fmri_data$acts[,voxel] ~ design_mat))
     coefficients[, voxel] <- model$coefficients[2:(n_regressors + 1)]
   }
   rownames(coefficients) <- cnames
+
+  #stop cluster
+  stopCluster(cl)
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')

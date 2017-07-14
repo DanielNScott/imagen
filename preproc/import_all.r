@@ -123,11 +123,15 @@ import_generic <- function(data_file, subj_ids){
 # ------------------------------------------------------------------------------ #
 #                Master routine for creating 'data' variable
 # ------------------------------------------------------------------------------ #
-import_all <- function(){
+import_all <- function(loc){
   library('futile.logger')
 
   # Where is data located, and who are the subjects?
-  base_dir      <- '/home/dan/projects/imagen/data/'
+  if (loc == 'local') {
+    base_dir      <- '/home/dan/projects/imagen/data/'
+  } else {
+    base_dir      <- '/users/dscott3/projects/imagen/data/'
+  }
   sbx_subj_list <- paste(base_dir, 'sandbox_subject_list.csv', sep = '')
 
   # Read subject list & demarcate test/training split
@@ -176,14 +180,17 @@ import_all <- function(){
   visit <- 'BL'
   task  <- 'SST'
 
-  # For cluster use:
-  #taskdata_dir   <- paste(base_dir, '/fmri/', task, '_', visit, '_behavioraldata/', sep = '')
-  #timeseries_dir <- paste(base_dir, '/fmri/', visit, '_VoxelLevel_', task, '/', sep = '')
-
-  # For local testing:
-  taskdata_dir   <- paste(base_dir, '/fmri/', sep = '')
-  timeseries_dir <- paste(base_dir, '/fmri/', sep = '')
-  movement_dir   <- paste(base_dir, '/fmri/', sep = '')
+  if (loc == 'local') {
+    # For local testing:
+    taskdata_dir   <- paste(base_dir, '/BL_SST_task/', sep = '')
+    timeseries_dir <- paste(base_dir, '/BL_SST_fmri/', sep = '')
+    movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
+  } else {
+    # For cluster use:
+    taskdata_dir   <- paste(base_dir, '/fmri/', sep = '')
+    timeseries_dir <- paste(base_dir, '/fmri/', sep = '')
+    movement_dir   <- paste(base_dir, '/fmri/', sep = '')
+  }
 
   #source('fmri_routines.r')
   too_late      <- double(396)
