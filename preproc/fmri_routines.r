@@ -207,25 +207,30 @@ fit_fmri_glm <- function(fmri_data) {
 
   cores <- detectCores()
   clust <- makeCluster(cores[1]-1)
+  flog.info('Using %d cores', cores[1]-1)
 
   # Setup for fitting the linear model with robust regression
   #linear_model <- lm(fmri_data$acts ~ design_mat)
-  library(robust)
 
   n_voxels <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
   coefficients <- matrix(NA, n_regressors, n_voxels)
 
   registerDoParallel(clust)
-  foreach (voxel in 1:n_voxels) %dopar% {
-    flog.info('Robust LM fit to voxel %d of %d', voxel, n_voxels)
-    capture.output(model <- lmRob(fmri_data$acts[,voxel] ~ design_mat))
-    coefficients[, voxel] <- model$coefficients[2:(n_regressors + 1)]
-  }
+  time <- system.time(
+    foreach (voxel = 1:n_voxels) %dopar% {
+      #flog.info('Robust LM fit to voxel %d of %d', voxel, n_voxels)
+      library(robust)
+      capture.output(model <- lmRob(fmri_data$acts[,voxel] ~ design_mat))
+      coefficients[, voxel] <- model$coefficients[2:(n_regressors + 1)]
+    }
+  )
+  flog.info('Computation time for voxel betas:')
+  print(time)
   rownames(coefficients) <- cnames
 
-  #stop cluster
-  stopCluster(cl)
+  # Stop cluster
+  stopCluster(clust)
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')

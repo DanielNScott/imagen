@@ -181,18 +181,18 @@ import_all <- function(loc){
   task  <- 'SST'
 
   if (loc == 'local') {
-    # For local testing:
-    taskdata_dir   <- paste(base_dir, '/BL_SST_task/', sep = '')
-    timeseries_dir <- paste(base_dir, '/BL_SST_fmri/', sep = '')
-    movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
-  } else {
     # For cluster use:
     taskdata_dir   <- paste(base_dir, '/fmri/', sep = '')
     timeseries_dir <- paste(base_dir, '/fmri/', sep = '')
     movement_dir   <- paste(base_dir, '/fmri/', sep = '')
+  } else {
+    # For local testing:
+    taskdata_dir   <- paste(base_dir, '/BL_SST_task/', sep = '')
+    timeseries_dir <- paste(base_dir, '/BL_SST_fmri/', sep = '')
+    movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  #source('fmri_routines.r')
+  source('fmri_routines.r')
   too_late      <- double(396)
   sst_contrasts <- double(396)
   for (id in data$subj_list[c(3),] ) {
