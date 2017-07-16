@@ -4,3 +4,5 @@
 .bashrc
 data/
 *.rds
+*.out
+*.err

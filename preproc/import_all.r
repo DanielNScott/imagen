@@ -193,7 +193,7 @@ import_all <- function(loc){
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  #source('fmri_routines.r')
+  source('fmri_routines.r')
   too_late      <- double(396)
   sst_contrasts <- double(396)
   for (id in data$subj_list[c(3),] ) {

@@ -67,7 +67,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
   task_outcome <- as.numeric(as.character(task_data['Response.Outcome'][,1]))
 
   # If we're looking at just the rIFG (a QC check)...
-  if (TRUE) {
+  if (FALSE) {
     rIFG_voxels <- read.csv(file = '../data/rIFGClusterRows.csv', header = FALSE)
     activations <- activations[, as.logical(rIFG_voxels)]
     activations <- cbind(activations, rowMeans(activations, na.rm = TRUE))
@@ -210,21 +210,22 @@ fit_fmri_glm <- function(fmri_data) {
 
   # Specifics for fitting the linear model with robust regression
   library(robust)
-  n_voxels <- dim(fmri_data$acts)[2]
+  n_voxels     <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
   coefficients <- matrix(NA, n_regressors, n_voxels)
 
   # Function to apply lmRob (named y here) to each column of the activation data
-  fit_cols <- function(x) {capture.output(
+  fit_cols <- function(x) {
     lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
-  )}
+  }
 
   # Actually do it...
   time <- system.time(
-    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols)
+    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
   )
   flog.info('Computation time for voxel betas:')
   print(time)
+  saveRDS(coefficients, 'betas2.rds')
 
   # Return coefficients to desired format
   coefficients <- data.frame(coefficients)
