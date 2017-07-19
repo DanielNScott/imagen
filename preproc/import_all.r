@@ -140,7 +140,7 @@ import_all <- function(loc){
   data$train_inds <- 1:198
   data$test_inds  <- 199:396
 
-  if (TRUE) {
+  if (FALSE) {
   ### ---------------------- ###
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
@@ -193,19 +193,31 @@ import_all <- function(loc){
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  source('fmri_routines.r')
-  too_late      <- double(396)
-  sst_contrasts <- double(396)
-  for (id in data$subj_list[c(3),] ) {
+  #source('fmri_routines.r')
+  #too_late      <- double(396)
+  #sst_contrasts <- double(396)
+  ag_num  <- 1
+  ag_data <- list()
+  for (id in data$subj_list[c(1:5,7:10),]) {
     fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir)
-    sst_betas <- fit_fmri_glm(fmri_data)
+    #sst_betas <- fit_fmri_glm(fmri_data, seperate = FALSE)
+
+    sst_ag_betas <- fit_fmri_glm(fmri_data, seperate = TRUE)
+
+    subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
+    ag_data[[subj_fldname]] <- sst_ag_betas$coef
+
     #sst_contrasts <-
     #too_late[ which(data$raw$Subject == id)] <- sst_betas$lm$coefficients[4,503]
 
     #data$raw['rIFG']
-    assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
-    assign(paste('subj_', id, 'sst_betas', sep = ''), sst_betas)
+    #assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
+    #assign(paste('subj_', id, 'sst_betas', sep = ''), sst_betas)
+
+    ag_num <- ag_num + 1
   }
+  fname <- paste(base_dir, 'sst_ag_betas.rds', sep = '')
+  saveRDS(ag_data, fname)
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values

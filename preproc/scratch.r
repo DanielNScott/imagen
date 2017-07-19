@@ -119,3 +119,48 @@ ggplot(dmelt, aes(x = value)) +
    geom_vline(data=dmelt, aes(xintercept=stn_quants[2],), linetype="dashed", size=0.5) +
    geom_vline(data=dmelt, aes(xintercept=stn_quants[3],), linetype="dashed", size=0.5) +
    ggtitle("STN Activation StdDevs & Quartiles")
+
+
+
+
+
+  ##################################################
+  # fmri stuff following what's in fit_fmri_glm
+  ##################################################
+
+  # ------------------------- #
+  # Actual processing is done #
+  # ------------------------- #
+  # Now stuff is just getting printed
+  lm_desc <- summary(linear_model)
+  coeff   <- lm_desc$coefficients
+
+  # STOP_SUCCESS is coeff. 4 originally (cond 3)
+  stop_ind <- 4
+  if (2 %in% bad_cond) {
+    stop_ind <- stop_ind - 1
+  }
+
+  # Information
+  print(paste('Subject ', subj_num,
+            ' GO_SUCCESS beta: ', round(coeff[2,'Estimate'], digits=2),
+            '. Sig: ', coeff[2,'Pr(>|t|)'] < 0.05,
+            ' STOP_SUCCESS beta: ', round(coeff[stop_ind,'Estimate'], digits=2),
+            '. Sig: ', coeff[stop_ind,'Pr(>|t|)'] < 0.05, sep=''))
+
+  if (coeff[2,'Pr(>|t|)'] < 0.05) {
+    frac_go_sig <- frac_go_sig + 1
+  }
+  if (coeff[stop_ind,'Pr(>|t|)'] < 0.05) {
+    frac_stop_sig <- frac_stop_sig + 1
+  }
+
+  # Report on betas:
+  #frac_go_sig   <- frac_go_sig  /n_to_fit
+  #frac_stop_sig <- frac_stop_sig/n_to_fit
+
+  print('')
+  print(paste('Fraction of GO_SUCCESS   betas which are significant:', frac_go_sig))
+  print(paste('Fraction of STOP_SUCCESS betas which are significant:', frac_stop_sig))
+
+  return (lm_list)

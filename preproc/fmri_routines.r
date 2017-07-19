@@ -73,6 +73,17 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
     activations <- cbind(activations, rowMeans(activations, na.rm = TRUE))
   }
 
+  roi_voxels  <- read.csv(file = '/home/dan/projects/imagen/data/roi_voxels.csv', header = TRUE)
+  rois <- colnames(roi_voxels)
+
+  tmp <- matrix(NA, dim(activations)[1], length(rois))
+  colnames(tmp) <- rois
+  for (roi in rois) {
+    #activations[roi] <- rowMeans(activations[, as.logical(roi_voxels)], na.rm = TRUE)
+    tmp[,roi]    <- rowMeans(activations[, as.logical(roi_voxels[[roi]]) ], na.rm = TRUE)
+  }
+  activations <- tmp
+
   # Save the fmri_series data (for raw <-> processed comparison)
   #saveRDS(activations, 'activations.rds')
 
@@ -123,11 +134,11 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
 # ------------------------------------------------------------------------------ #
 #            Fits a robust general linear model to raw fMRI activations          #
 # ------------------------------------------------------------------------------ #
-fit_fmri_glm <- function(fmri_data) {
+fit_fmri_glm <- function(fmri_data, seperate) {
 
   # Contrast groupings
   conditions <- as.integer(unique(fmri_data$task_key))
-  cnames     <- names(fmri_data$task_key)
+  cond_names <- names(fmri_data$task_key)
   n_conds    <- length(conditions)
 
   # fMRI analysis functions
@@ -143,6 +154,17 @@ fit_fmri_glm <- function(fmri_data) {
   # Array for events convolved w/ HRF
   conv_regs <- array(dim = c(n_scans, n_conds))
 
+  # In case of ancestral graph analysis, need book keeping vars for
+  # additional by-trial regressors
+  if (seperate) {
+    total_trials  <- length(fmri_data$task_outcome[!is.na(fmri_data$task_outcome)])
+    conv_regs_ag  <- array(NA, dim = c(n_scans, total_trials))
+    n_trials_prev <- 0
+    offset        <- 0
+    index_list    <- list()
+    cond_names_ag <- c()
+  }
+
   # Some conditions do not occur - they will be removed
   bad_cond  <- c()
 
@@ -156,7 +178,8 @@ fit_fmri_glm <- function(fmri_data) {
     cond_msk <- fmri_data$task_outcome %in% cond
 
     # If this condition doesn't occur, skip it.
-    if (sum(cond_msk) == 0) {
+    n_trials <- sum(cond_msk)
+    if (n_trials == 0) {
         bad_cond <- cbind(bad_cond,cond)
         next
     }
@@ -172,38 +195,51 @@ fit_fmri_glm <- function(fmri_data) {
     onsets    <- fmri_data$task_times[cond_msk]
     onsets    <- as.vector(na.omit(onsets/1000/2.2))
     durations <- double(length(onsets))
-    #print(onsets)
 
-    # Get convolved regressor for condition
+    # Standard fmri analysis - convolve hrf w/ event times:
     conv_regs[,cond] <- fmri.stimulus(scans = n_scans, onsets = onsets, duration = durations)
 
-    #print(conv_regs)
-    onset_list[[cond]] <- onsets
+    # Get convolved regressor for condition if 'seperate' is flagged
+    if (seperate) {
+      # Function to apply fmri.stimulus to each condition onset
+      conv_hrf <- function(x) { fmri.stimulus(scans = n_scans, onsets = x, duration = 0) }
+
+      # In ancestral graph case, each trial is given a seperate regressor
+      offset  <- offset + n_trials_prev
+      ind_beg <- offset + 1
+      ind_end <- offset + n_trials
+
+      conv_regs_ag[,ind_beg:ind_end] <- simplify2array(lapply(onsets, conv_hrf))
+      cond_names_ag[ind_beg:ind_end] <- paste(cond_names[cond], 1:n_trials, sep = ':')
+
+      n_trials_prev <- n_trials
+      index_list[[cond]]    <- c(ind_beg, ind_end)
+    }
   }
 
-  # Clean up conv_regs a bit, append 'TR' column, label things
-  #conv_regs[,bad_cond] <- integer(n_scans)
-  #conv_regs <- data.frame(cbind(conv_regs, 1:n_scans))
-  #colnames(conv_regs) <- c(cnames,'TR')
+  # Assign appropriate names
+  colnames(conv_regs)    <- cond_names
+  colnames(conv_regs_ag) <- cond_names_ag
 
-  # Create design matrix w/ 2nd deg drift, remove any bad conditions
-  conds <- setdiff(1:7, bad_cond)
+  # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
+  conds      <- setdiff(1:7, bad_cond)
   design_mat <- fmri.design(conv_regs[, conds], order = 2)
+  cond_names <- cond_names[conds]
 
   # Remove the unnecessary intercept column (which will otherwise be identical to col. 1)
-  nconds     <- length(conds)
+  nconds     <- dim(design_mat)[2] - 3
   design_mat <- design_mat[, c(1:nconds, (nconds + 2):(nconds + 3)) ]
-  colnames(design_mat) <- c(cnames[conds], 'Linear Drift', 'Sq. Drift')
-  cnames <- colnames(design_mat)
+  colnames(design_mat) <- c(cond_names, 'Linear Drift', 'Sq. Drift')
+  cond_names <- colnames(design_mat)
 
   # Add the motion parameters to the set of regressors
   design_mat <- cbind(design_mat, as.matrix(fmri_data$movement))
-  colnames(design_mat) <- c(cnames, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
-  cnames <- colnames(design_mat)
+  colnames(design_mat) <- c(cond_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
+  cond_names <- colnames(design_mat)
 
   # Indicate pool for core-level SIMD parallelism:
-  # Note: Using makeClust() here will break this on some clusters which do not allow
-  #       socket assignment and the like. mclapply defaults to fork-based dispatching.
+  # Note: Using makeClust() here will break this on some clusters which do not let R
+  #       use socket based core communication. mclapply defaults to fork-based dispatching.
   library(parallel)
   cores <- detectCores()
   flog.info('Using %d cores', cores[1])
@@ -212,24 +248,39 @@ fit_fmri_glm <- function(fmri_data) {
   library(robust)
   n_voxels     <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
-  coefficients <- matrix(NA, n_regressors, n_voxels)
+  coefficients <- matrix(NA, n_regressors, n_voxels )
 
-  # Function to apply lmRob (named y here) to each column of the activation data
-  fit_cols <- function(x) {
-    lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
+  if (seperate) {
+    coefficients <- matrix(NA, total_trials, n_voxels )
+    colnames(coefficients) <- colnames(fmri_data$acts)
+    time <- system.time(
+    for (roi in 1:n_voxels) {
+      coefficients[,roi] <- fit_ag_lm(conv_regs_ag, design_mat, fmri_data$acts[,roi], index_list, conds)
+    }
+    )
+    rownames(coefficients) <- colnames(conv_regs_ag)
+  } else {
+    # Function to apply lmRob to each column of the activation data
+    fit_cols <- function(x) {
+      lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
+    }
+
+    # Perform regression
+    time <- system.time(
+      coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    )
   }
 
-  # Actually do it...
-  time <- system.time(
-    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-  )
+  # Report time required for regression
   flog.info('Computation time for voxel betas:')
   print(time)
-  saveRDS(coefficients, 'betas2.rds')
+  #saveRDS(coefficients, 'betas2.rds')
 
   # Return coefficients to desired format
   coefficients <- data.frame(coefficients)
-  rownames(coefficients) <- cnames
+  if (!seperate) {
+    rownames(coefficients) <- cond_names
+  }
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')
@@ -237,49 +288,39 @@ fit_fmri_glm <- function(fmri_data) {
 
   # Save the linear model, list of conds removed,
   lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat, onsets = onset_list)
-
   return(lm_list)
+}
+# ------------------------------------------------------------------------------ #
 
-  ##################################################
-  # The rest of this function needs dealing with!
-  ##################################################
 
-  # ------------------------- #
-  # Actual processing is done #
-  # ------------------------- #
-  # Now stuff is just getting printed
-  lm_desc <- summary(linear_model)
-  coeff   <- lm_desc$coefficients
+# ------------------------------------------------------------------------------ #
+#         This performs the linear model fitting for the ancestral graphs        #
+# ------------------------------------------------------------------------------ #
+fit_ag_lm <- function(conv_regs_ag, design_mat, activations, index_list, conds) {
+  trial_betas <- rep(NA, dim(conv_regs_ag)[2])
+  names(trial_betas) <- colnames(conv_regs_ag)
 
-  # STOP_SUCCESS is coeff. 4 originally (cond 3)
-  stop_ind <- 4
-  if (2 %in% bad_cond) {
-    stop_ind <- stop_ind - 1
+  global_trial_num <- 0
+  for (cond in conds[conds <= 4]) {
+    beg <- index_list[[cond]][1]
+    end <- index_list[[cond]][2]
+
+    other_conds <- setdiff(conds, cond)
+
+    trials <- beg:end
+    for (trial in trials) {
+      global_trial_num <- global_trial_num + 1
+
+      remaining_inds <- setdiff(trials, trial)
+      remaining_regs <- apply(conv_regs_ag[,remaining_inds],1,sum)
+
+      design <- cbind(conv_regs_ag[,trial], remaining_regs, design_mat[,other_conds])
+      fit    <- lm(activations ~ design)
+
+      trial_betas[global_trial_num] <- fit$coefficients[2]
+    }
   }
-
-  # Information
-  print(paste('Subject ', subj_num,
-            ' GO_SUCCESS beta: ', round(coeff[2,'Estimate'], digits=2),
-            '. Sig: ', coeff[2,'Pr(>|t|)'] < 0.05,
-            ' STOP_SUCCESS beta: ', round(coeff[stop_ind,'Estimate'], digits=2),
-            '. Sig: ', coeff[stop_ind,'Pr(>|t|)'] < 0.05, sep=''))
-
-  if (coeff[2,'Pr(>|t|)'] < 0.05) {
-    frac_go_sig <- frac_go_sig + 1
-  }
-  if (coeff[stop_ind,'Pr(>|t|)'] < 0.05) {
-    frac_stop_sig <- frac_stop_sig + 1
-  }
-
-  # Report on betas:
-  #frac_go_sig   <- frac_go_sig  /n_to_fit
-  #frac_stop_sig <- frac_stop_sig/n_to_fit
-
-  print('')
-  print(paste('Fraction of GO_SUCCESS   betas which are significant:', frac_go_sig))
-  print(paste('Fraction of STOP_SUCCESS betas which are significant:', frac_stop_sig))
-
-  return (lm_list)
+  return(trial_betas)
 }
 # ------------------------------------------------------------------------------ #
 
