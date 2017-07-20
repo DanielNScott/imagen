@@ -16,14 +16,14 @@ ag_analysis <- function(dir_analy, data) {
   file.sources <- list.files(dir_src, pattern = "*.R", full.names = TRUE)
   sapply(file.sources, source, .GlobalEnv)
 
-  source(paste(dir_analy, '/sst_ag_index_data.r'   , sep = ''))
+  source(paste(dir_analy, '/index_ag_data.r'   , sep = ''))
   source(paste(dir_analy, '/define_ag_models.r'    , sep = ''))
-  source(paste(dir_analy, '/sst_ag_model_fitting.r', sep = ''))
+  source(paste(dir_analy, '/fit_ag_models.r', sep = ''))
 
   # Define indices for the coefficient data
-  indices <- sst_ag_index_data('/users/dscott3/projects/imagen/data')
+  indices <- index_ag_data('/users/dscott3/projects/imagen/data')
 
-  # Define conditions to be evalauted seperatly in sst_ag_model_fitting.r
+  # Define conditions to be evalauted seperatly in fit_ag_models.r
   cond <- list(indices$ST, indices$SR, indices$Go)
   names(cond) = c('ST', 'SR', 'Go')
 

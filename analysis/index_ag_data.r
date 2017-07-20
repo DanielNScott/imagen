@@ -1,5 +1,4 @@
-
-sst_ag_index_data <- function(dir_data) {
+index_ag_data <- function(dir_data) {
   # Load the coefficient data:
   data <- readRDS(paste(dir_data,"/sst_ag_betas.rds",sep = ''))
 

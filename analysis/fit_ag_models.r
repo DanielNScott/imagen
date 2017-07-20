@@ -1,20 +1,29 @@
-
-fit_ag_models <- function(data,  models, cond, C.Lab) {
+fit_ag_models <- function(data,  models, cond, rois) {
+  # Fits the ancestral graph models
+  #
+  # Args:
+  #   data:
+  #   models:
+  #   cond:
+  #   rois:
+  #
+  # Returns:
+  #   Fit statistics and model edge weights.
 
   n_models <- length(models)
   n_subj   <- length(data)
   n_conds  <- length(cond)
   subj_ids <- names(data)
 
-   #
-   setup_matrix <- function(name, suffixes = 1:n_models, n_rows = n_subj, n_cols = n_models, other_names = c()) {
+  # Most of the matrices below have the same attributes
+  setup_matrix <- function(name, suffixes = 1:n_models, n_rows = n_subj, n_cols = n_models, other_names = c()) {
     matrix <- round(matrix(, n_rows, n_cols), digits=2)
 
     colnames(matrix) <- c(other_names, paste(name, suffixes, sep=''))
     rownames(matrix) <- subj_ids
 
     return(matrix)
-   }
+  }
 
   # prepare matrix to save AIC values for individual subject
   AIC_direct <- setup_matrix('aic')
@@ -55,7 +64,7 @@ fit_ag_models <- function(data,  models, cond, C.Lab) {
 
         # var models contains the models
         # data contains the data for all subjects in a list
-        # C.Lab indicates the Region of input for the models
+        # rois indicates the Region of input for the models
         # cond contains the index numbers for each Condition,  each subject in data
 
         for (model_num in 1:n_models) {
@@ -63,7 +72,7 @@ fit_ag_models <- function(data,  models, cond, C.Lab) {
           subj_data <- data[subj_num]
           condition <- cond[[cond_num]][[subj_num]]
 
-          fitted_ag <- fitAG(subj_data,  model, C.Lab, condition, detail = 'both')
+          fitted_ag <- fitAG(subj_data,  model, rois, condition, detail = 'both')
 
           Aic[  model_num] <- fitted_ag$aic
           nPars[model_num] <- 0 #fitted_ag$npars
