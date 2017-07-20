@@ -13,6 +13,7 @@ sst_ag_index_data <- function(dir_data) {
   # Populate lists
   for (subj in 1:length(data)) {
   	conditions <- rownames(data[[subj]])
+
   	Go[[subj]]    <- grep('GO_SUCCESS' , conditions)
   	ST[[subj]]    <- grep('STOP_SUCCESS', conditions)
   	SR[[subj]]    <- grep('STOP_FAILURE', conditions)

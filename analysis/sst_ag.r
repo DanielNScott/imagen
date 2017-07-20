@@ -1,39 +1,47 @@
-# Ancestral graph analysis for the stop signal task.
-sst_ag_analysis <- function(ag_analysis_dir, data) {
+ag_analysis <- function(dir_analy, data) {
+  # Ancestral graph analysis for the stop signal task.
+  #
+  # Args:
+  #   dir_analy: Directory with the analysis source files
+  #   data: Array-like activation data with trials as rows, ROIs as cols.
+  #
+  # Returns:
+  #
+  print('Sourcing code and setting up models...')
 
   # Where are the ancestral graph scripts
-  ag_source_dir <- '/home/dan/projects/ancestral-graphs/AG_codes'
+  dir_src <- '/users/dscott3/projects/ancestral-graphs/AG_codes/src'
 
-  # source AG_codes
-  file.sources <- list.files(paste(ag_source_dir, '/rFunctions2', sep = ''), pattern = "*.R", full.names = TRUE, recursive = TRUE)
+  # Source the general AG codes
+  file.sources <- list.files(dir_src, pattern = "*.R", full.names = TRUE)
   sapply(file.sources, source, .GlobalEnv)
 
-  # Define indices for the coefficient data
-  source(paste(ag_analysis_dir, '/sst_ag_index_data.r', sep = ''))
-  indices <- sst_ag_index_data('/home/dan/projects/imagen/data')
+  source(paste(dir_analy, '/sst_ag_index_data.r'   , sep = ''))
+  source(paste(dir_analy, '/define_ag_models.r'    , sep = ''))
+  source(paste(dir_analy, '/sst_ag_model_fitting.r', sep = ''))
 
-  # these are the conditions that are evalauted seperatly in sst_ag_model_fitting.r
+  # Define indices for the coefficient data
+  indices <- sst_ag_index_data('/users/dscott3/projects/imagen/data')
+
+  # Define conditions to be evalauted seperatly in sst_ag_model_fitting.r
   cond <- list(indices$ST, indices$SR, indices$Go)
   names(cond) = c('ST', 'SR', 'Go')
 
-  # select the graph nodes for connectivity network
+  # Select the graph nodes for the connectivity networks to examine and source models of them
   #M0roi=c("CaudateR40exc" ,"PreSMARsmall","IFGR", "maxSTNR25exc","maxGPeR30exc","maxGPiR30exc","ThalamusR40exc")
-  #M0roi <- c("rCaudate", "rPreSMA", "rIFG", "rSTN", "rGPe", "rGPi", "rThalamus")
-  M0roi <- c("rCaudate", "rPreSMA", "rIFG", "rGPe", "rGPi", "rThalamus")
-  C.Lab <- M0roi
-
-  # source the models to use, these are the defined PFC-BG models to evaluate for connectivity/fits
-  source(paste(ag_analysis_dir, '/define_ag_models.r', sep = ''))
+  rois   <- c("rCaudate", "rPreSMA", "rIFG", "rSTN", "rGPe", "rGPi", "rThalamus")
   models <- define_ag_models()
 
+
   # Now do the connectivity evaluation for each subject, each model/condition, to compute aic/bic and n-fits
-  source(paste(ag_analysis_dir, '/sst_ag_model_fitting.r', sep = ''), chdir = F)
-  model_fits <- fit_ag_models(data, models)
+  print('Fitting models...')
+  model_fits <- fit_ag_models(data, models, cond, rois)
 
   # Print results based on random effects aic and bic, + number of fits based on yuan
   # and bentler chi (n = number of subject where model fits)
   model_fits$AMT
   model_fits$BMT
+
 
   #------------------------------------------------------------------------------#
   #         Compute (indvidual) connectivity strengths of winning model          #
@@ -43,7 +51,7 @@ sst_ag_analysis <- function(ag_analysis_dir, data) {
   hindi <- models$ag0
 
   #conditions to get beta for [these are the conditions where the model fitted all ppn]
-  cond2 <- list(ST, SR)
+  cond2 <- list(indices$ST, indices$SR)
   names(cond2) <- c('ST', 'SR')
 
   # Make succesfull stop and failed stop lists using data
@@ -53,8 +61,8 @@ sst_ag_analysis <- function(ag_analysis_dir, data) {
   n_subj <- length(data)
 
   for (subj_num in 1:n_subj){
-    ST[[subj_num]] <- data[[subj_num]][cond2[[1]][[subj_num]],C.Lab]
-    SR[[subj_num]] <- data[[subj_num]][cond2[[2]][[subj_num]],C.Lab]
+    ST[[subj_num]] <- data[[subj_num]][cond2[[1]][[subj_num]],rois]
+    SR[[subj_num]] <- data[[subj_num]][cond2[[2]][[subj_num]],rois]
   }
 
   # compute covarience matrix

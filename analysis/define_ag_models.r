@@ -1,5 +1,12 @@
-# List of potential ancestral graphs for consideration
 define_ag_models <- function() {
+  # Defines list of ancestral graphs for consideration
+  #
+  # Args:
+  #   none
+  #
+  # Returns:
+  #   List of models list(ag0, ag1, ag2, ag3)
+
   # classic hyper-indirect model (hindi)
   ag0 <- makeMG(dg = DAG(
           rCaudate  ~ rPreSMA + rIFG,
@@ -36,28 +43,9 @@ define_ag_models <- function() {
           rThalamus ~ rGPi
           ),ug = UG( ~ rPreSMA*rIFG + rSTN  + rGPe ))
 
-  # classic hyper-indirect model (hindi)
-  nostnhindi <- makeMG(dg = DAG(
-          rCaudate  ~ rPreSMA + rIFG,
-          rGPe      ~ rCaudate,
-          rGPi      ~ rGPe  +  rPreSMA + rIFG,
-          rThalamus ~ rGPi
-          ),ug = UG(  ~ rPreSMA*rIFG))
-
-  # direct (dir)
-  nostndir <- makeMG(dg = DAG(
-          rCaudate  ~ rPreSMA  +  rIFG,
-          #rSTN     ~ rPreSMA + rIFG,
-          #rGPe     ~ rCaudate,
-          rGPi      ~ rCaudate,
-          rThalamus ~ rGPi
-          ),ug = UG( ~ rPreSMA*rIFG + rPreSMA + rIFG + rGPe ))
-
   # Package
-  #models <- list(ag0, ag1, ag2, ag3)
-  #names(models) <- c('hindi', 'hyp', 'indir', 'dir')
-  models <- list(nostnhindi, nostndir)
-  names(models) <- c('hindi', 'dir')
+  models <- list(ag0, ag1, ag2, ag3)
+  names(models) <- c('hindi', 'hyp', 'indir', 'dir')
 
   return(models)
 }
