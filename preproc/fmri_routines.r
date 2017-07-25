@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------ #
 #                      Subroutine for reading the fmri data                      #
 # ------------------------------------------------------------------------------ #
-import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
+import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, data_dir) {
 
   # Set filename prefixes and suffixes
   task_pfx <- 'ss_'
@@ -73,7 +73,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
     activations <- cbind(activations, rowMeans(activations, na.rm = TRUE))
   }
 
-  roi_voxels  <- read.csv(file = '/home/dan/projects/imagen/data/roi_voxels.csv', header = TRUE)
+  roi_voxels  <- read.csv(file = paste(data_dir, '/roi_voxels.csv', sep = ''), header = TRUE)
   rois <- colnames(roi_voxels)
 
   tmp <- matrix(NA, dim(activations)[1], length(rois))
@@ -135,6 +135,10 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir) {
 #            Fits a robust general linear model to raw fMRI activations          #
 # ------------------------------------------------------------------------------ #
 fit_fmri_glm <- function(fmri_data, seperate) {
+
+  # Required libraries
+  library(parallel)
+  library(robust)
 
   # Contrast groupings
   conditions <- as.integer(unique(fmri_data$task_key))
@@ -237,39 +241,40 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   colnames(design_mat) <- c(cond_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   cond_names <- colnames(design_mat)
 
+
   # Indicate pool for core-level SIMD parallelism:
   # Note: Using makeClust() here will break this on some clusters which do not let R
   #       use socket based core communication. mclapply defaults to fork-based dispatching.
-  library(parallel)
   cores <- detectCores()
   flog.info('Using %d cores', cores[1])
 
-  # Specifics for fitting the linear model with robust regression
-  library(robust)
+
+  # Setup for regressions...
   n_voxels     <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
-  coefficients <- matrix(NA, n_regressors, n_voxels )
 
+  # For AG, need user defined function,
+  # for std analysis need robust linear model
   if (seperate) {
     coefficients <- matrix(NA, total_trials, n_voxels )
     colnames(coefficients) <- colnames(fmri_data$acts)
-    time <- system.time(
-    for (roi in 1:n_voxels) {
-      coefficients[,roi] <- fit_ag_lm(conv_regs_ag, design_mat, fmri_data$acts[,roi], index_list, conds)
+
+    fit_cols <- function(x) {
+      return(fit_ag_lm(conv_regs_ag, design_mat, x, index_list, conds))
     }
-    )
-    rownames(coefficients) <- colnames(conv_regs_ag)
+
   } else {
-    # Function to apply lmRob to each column of the activation data
+    coefficients <- matrix(NA, n_regressors, n_voxels )
+
     fit_cols <- function(x) {
       lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
     }
-
-    # Perform regression
-    time <- system.time(
-      coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-    )
   }
+
+  # Perform regression and time it
+  time <- system.time(
+    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+  )
 
   # Report time required for regression
   flog.info('Computation time for voxel betas:')

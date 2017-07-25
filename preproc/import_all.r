@@ -198,26 +198,39 @@ import_all <- function(loc){
   #sst_contrasts <- double(396)
   ag_num  <- 1
   ag_data <- list()
-  for (id in data$subj_list[c(1:5,7:10),]) {
-    fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir)
-    #sst_betas <- fit_fmri_glm(fmri_data, seperate = FALSE)
+  ag_subj <- c()
+  for (id in data$subj_list[,]) {
+    tryCatch({
+      fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
+      #sst_betas <- fit_fmri_glm(fmri_data, seperate = FALSE)
 
-    sst_ag_betas <- fit_fmri_glm(fmri_data, seperate = TRUE)
+      sst_ag_betas <- fit_fmri_glm(fmri_data, seperate = TRUE)
 
-    subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
-    ag_data[[subj_fldname]] <- sst_ag_betas$coef
+      subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
+      ag_data[[subj_fldname]] <- sst_ag_betas$coef
 
-    #sst_contrasts <-
-    #too_late[ which(data$raw$Subject == id)] <- sst_betas$lm$coefficients[4,503]
+      #sst_contrasts <-
+      #too_late[ which(data$raw$Subject == id)] <- sst_betas$lm$coefficients[4,503]
 
-    #data$raw['rIFG']
-    #assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
-    #assign(paste('subj_', id, 'sst_betas', sep = ''), sst_betas)
+      #data$raw['rIFG']
+      #assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
+      #assign(paste('subj_', id, 'sst_betas', sep = ''), sst_betas)
 
-    ag_num <- ag_num + 1
+      ag_num  <- ag_num + 1
+      ag_subj <- c(ag_subj, id)
+      print(paste('AG preprocessing success for subj', id))
+    }, error = function(e) {
+
+      # If something went wrong...
+      print(paste('AG preprocessing failure for subj', id))
+      print(e)
+    })
+
+    # Sometimes the error message 'e' is not very helpful so check warnings...
+    if (exists('w')) print(w)
   }
-  fname <- paste(base_dir, 'sst_ag_betas.rds', sep = '')
-  saveRDS(ag_data, fname)
+  saveRDS(ag_data, paste(base_dir, 'sst_ag_betas.rds', sep = ''))
+  saveRDS(ag_subj, paste(base_dir, 'sst_ag_subjs.rds', sep = ''))
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values

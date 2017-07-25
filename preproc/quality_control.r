@@ -315,7 +315,7 @@ quality_control <- function(data) {
   data   <- remove_outliers(data = data, ignore = ignore, thresh = 6)
 
   flog.info('Z-scoring features...')
-  data <- z_score_data(data = data, feature_list = names(data$raw))
+  data <- z_score_data(data = data, feature_list = setdiff(names(data$raw),'Subject'))
 
 }
 # ------------------------------------------------------------------------------ #

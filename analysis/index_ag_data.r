@@ -1,8 +1,5 @@
-index_ag_data <- function(dir_data) {
-  # Load the coefficient data:
-  data <- readRDS(paste(dir_data,"/sst_ag_betas.rds",sep = ''))
-
-  # Initialize lists of trial numbers for diff conds.
+index_ag_data <- function(data) {
+ # Initialize lists of trial numbers for diff conds.
   Go    <- list()
   ST    <- list()
   SR    <- list()

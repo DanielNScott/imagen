@@ -1,4 +1,4 @@
-fit_ag_models <- function(data,  models, cond, rois) {
+fit_ag_models <- function(data, models, cond, rois) {
   # Fits the ancestral graph models
   #
   # Args:
@@ -49,9 +49,13 @@ fit_ag_models <- function(data,  models, cond, rois) {
   # save individual BIC values
   #BMT <- setup_matrix('nfit-', suffixes = names(models), n_rows = n_conds, n_cols = n_models*2, other_names = names(models))
   BMT <- round(matrix(,n_conds, n_models*2), digits=2)
-  colnames(AMT) <- c(names(models), paste('nfit-', names(models), sep=''))
-  rownames(AMT) <- names(cond)
+  colnames(BMT) <- c(names(models), paste('nfit-', names(models), sep=''))
+  rownames(BMT) <- names(cond)
 
+  print('Fitting models for...')
+  print(paste('  ...', n_conds , 'conditions:', toString(names(cond  )) ))
+  print(paste('  ...', n_models, 'models    :', toString(names(models)) ))
+  print(paste('  and', n_subj, 'subjects'))
 
   for (cond_num in 1:n_conds) {
 
@@ -75,7 +79,7 @@ fit_ag_models <- function(data,  models, cond, rois) {
           fitted_ag <- fitAG(subj_data,  model, rois, condition, detail = 'both')
 
           Aic[  model_num] <- fitted_ag$aic
-          nPars[model_num] <- 0 #fitted_ag$npars
+          nPars[model_num] <- fitted_ag$npars
           Fit[  model_num] <- fitted_ag$fit$chi2
           P[    model_num] <- fitted_ag$fit$p
 
