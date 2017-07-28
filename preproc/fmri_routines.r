@@ -40,7 +40,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
   # Read the SST series
   if (file.exists(task_full_name)) {
     # Only want to read 2 columns, time and outcome
-    cols <- c('NULL','NULL','numeric','NULL','NULL','NULL','NULL','NULL',
+    cols <- c('NULL','NULL','numeric','NULL','NULL',NA    ,'NULL','NULL',
               'NULL','NULL','NULL'   , NA   ,'NULL','NULL','NULL','numeric')
     task_data <- read.csv(file = task_full_name, header = TRUE, sep = '\t', colClasses = cols, skip = 1)
     print(paste('Successful read of ', task_fname))
@@ -65,6 +65,10 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
   task_times <- task_data['Trial.Start.Time..Onset.'][,1]
   task_data['Response.Outcome'][,1] <- revalue(task_data['Response.Outcome'][,1], task_key, warn_missing = FALSE)
   task_outcome <- as.numeric(as.character(task_data['Response.Outcome'][,1]))
+
+  # Get stimulus identities (e.g. 'LeftArrow') and get rid of 'Arrow'
+  stim <- as.character(task_data['Stimulus.Presented'])
+  stim <- sapply(stim, function(x){x <- substr(x, 1, nchar(x)-5) }, USE.NAMES = FALSE)
 
   # If we're looking at just the rIFG (a QC check)...
   if (FALSE) {
@@ -123,7 +127,7 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
 
   # Return data
   data <- list(acts = activations, spikes = spike_inds, task_outcome = task_outcome,
-               task_times = task_times, task_key = task_key, movement = movement)
+               task_times = task_times, task_key = task_key, stim = stim, movement = movement)
   return(data)
 
 } # EOF
@@ -139,41 +143,45 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   # Required libraries
   library(parallel)
   library(robust)
-
-  # Contrast groupings
-  conditions <- as.integer(unique(fmri_data$task_key))
-  cond_names <- names(fmri_data$task_key)
-  n_conds    <- length(conditions)
-
-  # fMRI analysis functions
   library(fmri)
-
-  # Proportion of subjects w/ significant STN betas for STOP_SUCCESS
-  frac_go_sig   <- 0
-  frac_stop_sig <- 0
 
   # Number of scans in this series -- varies by individual.
   n_scans <- length(fmri_data$acts[!is.na(fmri_data$acts[,1]),1])
 
-  # Array for events convolved w/ HRF
-  conv_regs <- array(dim = c(n_scans, n_conds))
-
   # In case of ancestral graph analysis, need book keeping vars for
-  # additional by-trial regressors
+  # additional by-trial regressors and to overwrite some things.
   if (seperate) {
     total_trials  <- length(fmri_data$task_outcome[!is.na(fmri_data$task_outcome)])
-    conv_regs_ag  <- array(NA, dim = c(n_scans, total_trials))
+    conv_regs     <- array(NA, dim = c(n_scans, total_trials))
     n_trials_prev <- 0
     offset        <- 0
     index_list    <- list()
-    cond_names_ag <- c()
+    cond_names    <- c()
+
+    # Build outer product of character vectors for 'handed' conditions
+    hands      <- c('Left','Right')
+    conditions <- unique(fmri_data$task_key)
+    conditions <- apply(expand.grid(conditions, hands),1,function(x) paste(x,collapse=""))
+
+    cond_names <- names(conditions)
+    conditions <- as.integer(conditions)
+    n_conds    <- length(conditions)
+
+    # Need to modify the task outcome fields to reflect handedness
+    fmri_data$task_outcome <- paste(fmri_data$task_outcome, fmri_data$stim, sep = '_')
+
+  } else {
+    # Task conditions
+    conditions <- as.integer(unique(fmri_data$task_key))
+    cond_names <- names(fmri_data$task_key)
+    n_conds    <- length(conditions)
+
+    # Array for events convolved w/ HRF
+    conv_regs <- array(dim = c(n_scans, n_conds))
   }
 
   # Some conditions do not occur - they will be removed
   bad_cond  <- c()
-
-  # List of onset times by condition
-  onset_list <- list(c(), c(), c(), c(), c(), c(), c())
 
   # Fill the conv_regressors array for each condition
   for (cond in conditions) {
@@ -200,9 +208,6 @@ fit_fmri_glm <- function(fmri_data, seperate) {
     onsets    <- as.vector(na.omit(onsets/1000/2.2))
     durations <- double(length(onsets))
 
-    # Standard fmri analysis - convolve hrf w/ event times:
-    conv_regs[,cond] <- fmri.stimulus(scans = n_scans, onsets = onsets, duration = durations)
-
     # Get convolved regressor for condition if 'seperate' is flagged
     if (seperate) {
       # Function to apply fmri.stimulus to each condition onset
@@ -213,17 +218,21 @@ fit_fmri_glm <- function(fmri_data, seperate) {
       ind_beg <- offset + 1
       ind_end <- offset + n_trials
 
-      conv_regs_ag[,ind_beg:ind_end] <- simplify2array(lapply(onsets, conv_hrf))
-      cond_names_ag[ind_beg:ind_end] <- paste(cond_names[cond], 1:n_trials, sep = ':')
+      conv_regs[,ind_beg:ind_end] <- simplify2array(lapply(onsets, conv_hrf))
+      cond_names[ind_beg:ind_end] <- paste(cond_names[cond], 1:n_trials, sep = ':')
 
       n_trials_prev <- n_trials
       index_list[[cond]]    <- c(ind_beg, ind_end)
-    }
+
+     } else {
+
+       # Standard fmri analysis - convolve hrf w/ event times:
+       conv_regs[,cond] <- fmri.stimulus(scans = n_scans, onsets = onsets, duration = durations)
+     }
   }
 
   # Assign appropriate names
-  colnames(conv_regs)    <- cond_names
-  colnames(conv_regs_ag) <- cond_names_ag
+  colnames(conv_regs) <- cond_names
 
   # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
   conds      <- setdiff(1:7, bad_cond)
@@ -260,7 +269,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
     colnames(coefficients) <- colnames(fmri_data$acts)
 
     fit_cols <- function(x) {
-      return(fit_ag_lm(conv_regs_ag, design_mat, x, index_list, conds))
+      return(fit_ag_lm(conv_regs, design_mat, x, index_list, conds))
     }
 
   } else {
@@ -292,7 +301,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   #+ geom_point(aes(1:444,melt(fmri_data$acts[,503])), col = 'blue')
 
   # Save the linear model, list of conds removed,
-  lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat, onsets = onset_list)
+  lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat)
   return(lm_list)
 }
 # ------------------------------------------------------------------------------ #

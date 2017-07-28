@@ -28,7 +28,7 @@ ag_analysis <- function(dir_analy, data) {
   names(cond) = c('ST', 'SR', 'Go')
 
   # Select the graph nodes for the connectivity networks to examine and source models of them
-  #M0roi=c("CaudateR40exc" ,"PreSMARsmall","IFGR", "maxSTNR25exc","maxGPeR30exc","maxGPiR30exc","ThalamusR40exc")
+  #rois  <- c("CaudateR40exc" ,"PreSMARsmall","IFGR", "maxSTNR25exc","maxGPeR30exc","maxGPiR30exc","ThalamusR40exc")
   rois   <- c("rCaudate", "rPreSMA", "rIFG", "rSTN", "rGPe", "rGPi", "rThalamus")
   models <- define_ag_models()
 
@@ -55,7 +55,6 @@ ag_analysis <- function(dir_analy, data) {
   # Make succesfull stop and failed stop lists using data
   ST <- list()
   SR <- list()
-
   n_subj <- length(data)
 
   for (subj_num in 1:n_subj) {
@@ -75,30 +74,37 @@ ag_analysis <- function(dir_analy, data) {
     fitSR[[subj_num]] <- fitAncestralGraph(models$hindi, covList.SR[[subj_num]], dim(SR[[subj_num]])[1])
   }
 
+  # Individual connectivity strengths
   print('Computing within-subject connectivity strength statistics...')
 
-  # compute the variance of beta per subject
-  var.g.ST <- ag.var.group(fitST, covList.ST, ST)
-  var.g.SR <- ag.var.group(fitSR, covList.SR, SR)
-
-  # save matrix for var beta and beta itself (zijn nog leeg)
-  varbeta.ST <- matrix(,dim(var.g.ST)[3], dim(var.g.ST)[1])
-  varbeta.SR <- matrix(,dim(var.g.SR)[3], dim(var.g.SR)[1])
-
-  beta.ST    <- matrix(,n_subj, length(ag.theta(fitST[[1]])))
-  beta.SR    <- matrix(,n_subj, length(ag.theta(fitSR[[1]])))
+  beta.ST <- matrix(,n_subj, length(ag.theta(fitST[[1]])))
+  beta.SR <- matrix(,n_subj, length(ag.theta(fitSR[[1]])))
 
   for (subj_num in 1:n_subj) {
-    varbeta.ST[subj_num,] <- diag(var.g.ST[,,subj_num])
-    varbeta.SR[subj_num,] <- diag(var.g.SR[,,subj_num])
-
     beta.ST[subj_num,]    <- ag.theta(fitST[[subj_num]])
     beta.SR[subj_num,]    <- ag.theta(fitSR[[subj_num]])
   }
 
-  # these are the standarized connections (to use for group comparisons)
-  sbeta.ST <- round(beta.ST / varbeta.ST, dig = 8)
-  sbeta.SR <- round(beta.SR / varbeta.SR, dig = 8)
+  # Same betas standardised by their variances:
+  standardise_betas <- FALSE
+  if (standardise_betas) {
+    # compute the variance of beta per subject
+    var.g.ST <- ag.var.group(fitST, covList.ST, ST)
+    var.g.SR <- ag.var.group(fitSR, covList.SR, SR)
+
+    # Get standardised values
+    varbeta.ST <- matrix(,dim(var.g.ST)[3], dim(var.g.ST)[1])
+    varbeta.SR <- matrix(,dim(var.g.SR)[3], dim(var.g.SR)[1])
+
+    for (subj_num in 1:n_subj) {
+      varbeta.ST[subj_num,] <- diag(var.g.ST[,,subj_num])
+      varbeta.SR[subj_num,] <- diag(var.g.SR[,,subj_num])
+    }
+
+    # these are the standarized connections (to use for group comparisons)
+    sbeta.ST <- round(beta.ST / varbeta.ST, dig = 8)
+    sbeta.SR <- round(beta.SR / varbeta.SR, dig = 8)
+  }
 
   # note here beta and sbeta contain the estimated coefficients
   # for all the defined connections in the model
@@ -110,23 +116,23 @@ ag_analysis <- function(dir_analy, data) {
   # select the defined directed and undirected connections
   beta.ST  <- beta.ST[,  c(1:8,10)]
   beta.SR  <- beta.SR[,  c(1:8,10)]
-  sbeta.ST <- sbeta.ST[, c(1:8,10)]
-  sbeta.SR <- sbeta.SR[, c(1:8,10)]
 
-
-  colnames(beta.ST) <- c('caud->gpe','presma->caud','presma->stn','ifg->caud',
+  hindi_conn_names  <- c('caud->gpe','presma->caud','presma->stn','ifg->caud',
                          'ifg->stn','stn->gpi','gpe->gpi','gpi->thalamus',
                          'presma-ifg')
 
-  colnames(beta.SR) <- c('caud->gpe','presma->caud','presma->stn','ifg->caud',
-                         'ifg->stn','stn->gpi','gpe->gpi','gpi->thalamus',
-                         'presma-ifg')
+  colnames(beta.ST) <- hindi_conn_names
+  colnames(beta.SR) <- hindi_conn_names
 
-  colnames(sbeta.ST) <- colnames(beta.ST)
-  colnames(sbeta.SR) <- colnames(beta.SR)
+  if (standardise_betas) {
+    sbeta.ST <- sbeta.ST[, c(1:8,10)]
+    sbeta.SR <- sbeta.SR[, c(1:8,10)]
 
-  beta_output <- list(connectivity_ST = beta.ST, connectivity_SR = beta.SR,
-                      standarized_con_ST = sbeta.ST, standarized_con_SR = sbeta.SR)
+    colnames(sbeta.ST) <- hindi_conn_names
+    colnames(sbeta.SR) <- hindi_conn_names
+  }
+
+  beta_output <- list(connectivity_ST = beta.ST, connectivity_SR = beta.SR)
 
   for (rn in 1:length(beta_output)) {
     rownames(beta_output[[rn]]) = names(data)

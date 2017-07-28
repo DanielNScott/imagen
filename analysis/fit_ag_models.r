@@ -86,12 +86,12 @@ fit_ag_models <- function(data, models, cond, rois) {
           nobs[model_num]  <- length(cond[[cond_num]][[subj_num]])
         }
 
-    AIC_direct[subj_num, ]  <- round(Aic, digits=2)
-    Fit_direct[subj_num, ]  <- round(Fit, digits=2)
-    P_direct[   subj_num, ] <- round(P, digits=2)
-    logL_direct[subj_num, ] <- Aic - 2*nPars
+      AIC_direct[subj_num, ]  <- round(Aic, digits=2)
+      Fit_direct[subj_num, ]  <- round(Fit, digits=2)
+      P_direct[   subj_num, ] <- round(P, digits=2)
+      logL_direct[subj_num, ] <- Aic - 2*nPars
 
-    nObs[subj_num, ] <- round(nobs[subj_num], digits=2)
+      nObs[subj_num, ] <- round(nobs[model_num], digits=2)
 
     }
 

@@ -124,7 +124,9 @@ import_generic <- function(data_file, subj_ids){
 #                Master routine for creating 'data' variable
 # ------------------------------------------------------------------------------ #
 import_all <- function(loc){
+
   library('futile.logger')
+  source('fmri_routines.r')
 
   # Where is data located, and who are the subjects?
   if (loc == 'local') {
@@ -145,7 +147,6 @@ import_all <- function(loc){
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
   # Files to read
-  # NOTE: This is just reading the test data twice for debugging purposes!!
   sst_params_files <- paste(base_dir, c('test_parameters.csv', 'train_parameters.csv'), sep = '')
 
   # Read the SST parameters files
@@ -193,32 +194,30 @@ import_all <- function(loc){
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  #source('fmri_routines.r')
-  #too_late      <- double(396)
-  #sst_contrasts <- double(396)
   ag_num  <- 1
   ag_data <- list()
   ag_subj <- c()
+
   for (id in data$subj_list[,]) {
     tryCatch({
+
+      # Retrieve and preprocess rois and trial data
       fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
-      #sst_betas <- fit_fmri_glm(fmri_data, seperate = FALSE)
 
-      sst_ag_betas <- fit_fmri_glm(fmri_data, seperate = TRUE)
+      # Fit linear models to roi activations for std and AG analysis
+      #sst_roi_coef  <- fit_fmri_glm(fmri_data, seperate = FALSE)
+      ag_trial_coef <- fit_fmri_glm(fmri_data, seperate = TRUE)
 
+      # Set up data structure for use in AG analysis
       subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
-      ag_data[[subj_fldname]] <- sst_ag_betas$coef
+      ag_input[[subj_fldname]] <- ag_trial_coef$coef
 
-      #sst_contrasts <-
-      #too_late[ which(data$raw$Subject == id)] <- sst_betas$lm$coefficients[4,503]
-
-      #data$raw['rIFG']
-      #assign(paste('subj_', id, 'fmri_data', sep = ''), fmri_data)
-      #assign(paste('subj_', id, 'sst_betas', sep = ''), sst_betas)
-
-      ag_num  <- ag_num + 1
+      # Book keeping
       ag_subj <- c(ag_subj, id)
+      ag_num  <- ag_num + 1
+
       print(paste('AG preprocessing success for subj', id))
+
     }, error = function(e) {
 
       # If something went wrong...
@@ -229,8 +228,8 @@ import_all <- function(loc){
     # Sometimes the error message 'e' is not very helpful so check warnings...
     if (exists('w')) print(w)
   }
-  saveRDS(ag_data, paste(base_dir, 'sst_ag_betas.rds', sep = ''))
-  saveRDS(ag_subj, paste(base_dir, 'sst_ag_subjs.rds', sep = ''))
+  #saveRDS(ag_input, paste(base_dir, '/data/', 'ag_input.rds', sep = ''))
+  #saveRDS(ag_subj , paste(base_dir, '/data/', 'ag_subjs.rds', sep = ''))
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values
