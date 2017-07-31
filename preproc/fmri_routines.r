@@ -62,13 +62,17 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
   library(plyr)
 
   # Extract the trial times and outcomes
-  task_times <- task_data['Trial.Start.Time..Onset.'][,1]
-  task_data['Response.Outcome'][,1] <- revalue(task_data['Response.Outcome'][,1], task_key, warn_missing = FALSE)
-  task_outcome <- as.numeric(as.character(task_data['Response.Outcome'][,1]))
+  task_times   <- task_data['Trial.Start.Time..Onset.'][,1]
+  task_outcome <- as.character(task_data['Response.Outcome'][,1])
+
+  # Old, numeric coding.
+  #task_data['Response.Outcome'][,1] <- revalue(task_data['Response.Outcome'][,1], task_key, warn_missing = FALSE)
+  #task_outcome <- as.integer(as.character(task_data['Response.Outcome'][,1]))
 
   # Get stimulus identities (e.g. 'LeftArrow') and get rid of 'Arrow'
-  stim <- as.character(task_data['Stimulus.Presented'])
-  stim <- sapply(stim, function(x){x <- substr(x, 1, nchar(x)-5) }, USE.NAMES = FALSE)
+  stim <- as.character(task_data['Stimulus.Presented'][,])
+  stim <- sapply(stim, function(x){x <- substr(x, 1, nchar(x) - 5) }, USE.NAMES = FALSE)
+  stim <- toupper(stim)
 
   # If we're looking at just the rIFG (a QC check)...
   if (FALSE) {
@@ -151,30 +155,30 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   # In case of ancestral graph analysis, need book keeping vars for
   # additional by-trial regressors and to overwrite some things.
   if (seperate) {
-    total_trials  <- length(fmri_data$task_outcome[!is.na(fmri_data$task_outcome)])
+
+    # Need to modify the task outcome fields to reflect handedness
+    hands      <- c('LEFT', 'RIGHT')
+    cond_names <- names(fmri_data$task_key)
+    cond_names <- apply(expand.grid(cond_names, hands),1,function(x) paste(x,collapse = "_"))
+    n_conds    <- length(cond_names)
+    cond_nums  <- 1:n_conds
+
+    outcomes   <- paste(fmri_data$task_outcome, fmri_data$stim, sep = '_')
+
+    # Book-keeping
+    total_trials  <- length(fmri_data$task_outcome[!(fmri_data$task_outcome == '')])
     conv_regs     <- array(NA, dim = c(n_scans, total_trials))
     n_trials_prev <- 0
     offset        <- 0
     index_list    <- list()
-    cond_names    <- c()
-
-    # Build outer product of character vectors for 'handed' conditions
-    hands      <- c('Left','Right')
-    conditions <- unique(fmri_data$task_key)
-    conditions <- apply(expand.grid(conditions, hands),1,function(x) paste(x,collapse=""))
-
-    cond_names <- names(conditions)
-    conditions <- as.integer(conditions)
-    n_conds    <- length(conditions)
-
-    # Need to modify the task outcome fields to reflect handedness
-    fmri_data$task_outcome <- paste(fmri_data$task_outcome, fmri_data$stim, sep = '_')
+    trial_names   <- c()
 
   } else {
     # Task conditions
-    conditions <- as.integer(unique(fmri_data$task_key))
+    cond_nums  <- as.integer(unique(fmri_data$task_key))
     cond_names <- names(fmri_data$task_key)
-    n_conds    <- length(conditions)
+    n_conds    <- length(cond_nums)
+    outcomes   <- fmri_data$task_outcome
 
     # Array for events convolved w/ HRF
     conv_regs <- array(dim = c(n_scans, n_conds))
@@ -184,15 +188,15 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   bad_cond  <- c()
 
   # Fill the conv_regressors array for each condition
-  for (cond in conditions) {
+  for (cond in cond_nums) {
 
     # Masks for getting trial times
-    cond_msk <- fmri_data$task_outcome %in% cond
+    cond_msk <- outcomes %in% cond_names[cond]
 
     # If this condition doesn't occur, skip it.
     n_trials <- sum(cond_msk)
     if (n_trials == 0) {
-        bad_cond <- cbind(bad_cond,cond)
+        bad_cond <- cbind(bad_cond, cond)
         next
     }
 
@@ -219,7 +223,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
       ind_end <- offset + n_trials
 
       conv_regs[,ind_beg:ind_end] <- simplify2array(lapply(onsets, conv_hrf))
-      cond_names[ind_beg:ind_end] <- paste(cond_names[cond], 1:n_trials, sep = ':')
+      trial_names[ind_beg:ind_end] <- paste(cond_names[cond], 1:n_trials, sep = ':')
 
       n_trials_prev <- n_trials
       index_list[[cond]]    <- c(ind_beg, ind_end)
@@ -231,24 +235,25 @@ fit_fmri_glm <- function(fmri_data, seperate) {
      }
   }
 
-  # Assign appropriate names
-  colnames(conv_regs) <- cond_names
+  # Assign appropriate names: Need to list-ify and un-listify for if-else.
+  regressor_names <- ifelse(seperate, list(trial_names), list(cond_names))[[1]]
+  colnames(conv_regs) <- regressor_names
 
   # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
-  conds      <- setdiff(1:7, bad_cond)
-  design_mat <- fmri.design(conv_regs[, conds], order = 2)
-  cond_names <- cond_names[conds]
+  cond_nums  <- setdiff(cond_nums, bad_cond)
+  design_mat <- fmri.design(conv_regs[, cond_nums], order = 2)
+  regressor_names <- regressor_names[cond_nums]
 
   # Remove the unnecessary intercept column (which will otherwise be identical to col. 1)
-  nconds     <- dim(design_mat)[2] - 3
-  design_mat <- design_mat[, c(1:nconds, (nconds + 2):(nconds + 3)) ]
-  colnames(design_mat) <- c(cond_names, 'Linear Drift', 'Sq. Drift')
-  cond_names <- colnames(design_mat)
+  n_good_conds <- dim(design_mat)[2] - 3
+  design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
+  colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
+  regressor_names <- colnames(design_mat)
 
   # Add the motion parameters to the set of regressors
   design_mat <- cbind(design_mat, as.matrix(fmri_data$movement))
-  colnames(design_mat) <- c(cond_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
-  cond_names <- colnames(design_mat)
+  colnames(design_mat) <- c(regressor_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
+  regressor_names <- colnames(design_mat)
 
 
   # Indicate pool for core-level SIMD parallelism:
@@ -269,7 +274,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
     colnames(coefficients) <- colnames(fmri_data$acts)
 
     fit_cols <- function(x) {
-      return(fit_ag_lm(conv_regs, design_mat, x, index_list, conds))
+      return(fit_ag_lm(conv_regs, design_mat, x, index_list, cond_nums))
     }
 
   } else {
@@ -292,9 +297,9 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
   # Return coefficients to desired format
   coefficients <- data.frame(coefficients)
-  if (!seperate) {
-    rownames(coefficients) <- cond_names
-  }
+  #if (!seperate) {
+  #  rownames(coefficients) <- cond_names
+  #}
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')

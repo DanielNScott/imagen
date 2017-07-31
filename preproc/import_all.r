@@ -126,7 +126,7 @@ import_generic <- function(data_file, subj_ids){
 import_all <- function(loc){
 
   library('futile.logger')
-  source('fmri_routines.r')
+  #source('fmri_routines.r')
 
   # Where is data located, and who are the subjects?
   if (loc == 'local') {
@@ -194,11 +194,11 @@ import_all <- function(loc){
     movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
   }
 
-  ag_num  <- 1
-  ag_data <- list()
-  ag_subj <- c()
+  ag_num   <- 1
+  ag_input <- list()
+  ag_subj  <- c()
 
-  for (id in data$subj_list[,]) {
+  for (id in data$subj_list[1:30,]) {
     tryCatch({
 
       # Retrieve and preprocess rois and trial data
@@ -228,8 +228,8 @@ import_all <- function(loc){
     # Sometimes the error message 'e' is not very helpful so check warnings...
     if (exists('w')) print(w)
   }
-  #saveRDS(ag_input, paste(base_dir, '/data/', 'ag_input.rds', sep = ''))
-  #saveRDS(ag_subj , paste(base_dir, '/data/', 'ag_subjs.rds', sep = ''))
+  saveRDS(ag_input, paste(base_dir, '/data/', 'ag_input.rds', sep = ''))
+  saveRDS(ag_subj , paste(base_dir, '/data/', 'ag_subjs.rds', sep = ''))
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values
