@@ -196,6 +196,7 @@ import_all <- function(loc){
 
   ag_num   <- 1
   ag_input <- list()
+  fmri_betas <- list()
   ag_subj  <- c()
 
   for (id in data$subj_list[,]) {
@@ -205,31 +206,32 @@ import_all <- function(loc){
       fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
 
       # Fit linear models to roi activations for std and AG analysis
-      #sst_roi_coef  <- fit_fmri_glm(fmri_data, seperate = FALSE)
-      ag_trial_coef <- fit_fmri_glm(fmri_data, seperate = TRUE)
+      sst_roi_response  <- fit_fmri_glm(fmri_data, seperate = FALSE)
+      #ag_trial_coef <- fit_fmri_glm(fmri_data, seperate = TRUE)
 
       # Set up data structure for use in AG analysis
       subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
-      ag_input[[subj_fldname]] <- ag_trial_coef$coef
+      #ag_input[[subj_fldname]]   <- ag_trial_coef$coef
+      fmri_betas[[subj_fldname]] <- sst_roi_response$coef
 
       # Book keeping
       ag_subj <- c(ag_subj, id)
       ag_num  <- ag_num + 1
 
-      print(paste('AG preprocessing success for subj', id))
+      print(paste('fMRI preprocessing success for subj', id))
 
     }, error = function(e) {
 
       # If something went wrong...
-      print(paste('AG preprocessing failure for subj', id))
+      print(paste('fMRI preprocessing failure for subj', id))
       print(e)
     })
 
     # Sometimes the error message 'e' is not very helpful so check warnings...
     if (exists('w')) print(w)
   }
-  saveRDS(ag_input, paste(base_dir, 'ag_input.rds', sep = ''))
-  saveRDS(ag_subj , paste(base_dir, 'ag_subjs.rds', sep = ''))
+  saveRDS(fmri_betas, paste(base_dir, 'fmri_betas.rds', sep = ''))
+  saveRDS(ag_subj , paste(base_dir, 'fmri_subjs.rds', sep = ''))
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values

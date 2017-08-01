@@ -242,7 +242,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   # Throw away bad conditions
   cond_nums  <- setdiff(cond_nums, bad_cond)
   cond_names <- cond_names[cond_nums]
-  index_list <- index_list[cond_nums]
+  if (seperate) {index_list <- index_list[cond_nums]}
 
   if (seperate) {
     # Get design matrix but dith the linear drift term
@@ -311,9 +311,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
   # Return coefficients to desired format
   coefficients <- data.frame(coefficients)
-  #if (!seperate) {
-  #  rownames(coefficients) <- cond_names
-  #}
+  if (!seperate) { rownames(coefficients) <- colnames(design_mat)}
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')
