@@ -24,8 +24,7 @@ ag_analysis <- function(dir_analy, data) {
   indices <- index_ag_data(data)
 
   # Define conditions to be evalauted seperatly in fit_ag_models.r
-  cond <- list(indices$ST, indices$SR, indices$Go)
-  names(cond) = c('ST', 'SR', 'Go')
+  cond <- indices[ c('St', 'Sr', 'Go', 'GoL', 'GoR') ]
 
   # Select the graph nodes for the connectivity networks to examine and source models of them
   #rois  <- c("CaudateR40exc" ,"PreSMARsmall","IFGR", "maxSTNR25exc","maxGPeR30exc","maxGPiR30exc","ThalamusR40exc")
@@ -49,8 +48,8 @@ ag_analysis <- function(dir_analy, data) {
   print('Computing individual connectivity strengths...')
 
   #conditions to get beta for [these are the conditions where the model fitted all ppn]
-  cond2 <- list(indices$ST, indices$SR)
-  names(cond2) <- c('ST', 'SR')
+  cond2 <- list(indices$St, indices$Sr)
+  names(cond2) <- c('St', 'Sr')
 
   # Make succesfull stop and failed stop lists using data
   ST <- list()

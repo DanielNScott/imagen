@@ -337,8 +337,8 @@ fit_ag_lm <- function(regressors, movement, activations, index_list) {
   # Index into trial_betas for use in loops below
   global_trial_num <- 0
 
-  # Construct the "whole condition" regressors
-  whole_cond_regs <- sapply(index_list, function(x) {apply(regressors[, x[1]:x[2] ],1,sum)})
+  # Construct the "whole condition" regressors. Also see NOTE below.
+  whole_cond_regs <- sapply(index_list, function(x) {apply(regressors[, x[1]:x[2], drop = FALSE],1,sum)})
 
   conds <- 1:length(index_list)
   for (cond in conds) {
@@ -356,7 +356,7 @@ fit_ag_lm <- function(regressors, movement, activations, index_list) {
     for (trial in trials) {
       global_trial_num <- global_trial_num + 1
 
-      # Note: take care when partial_cond_inds is not a sequence...
+      # NOTE: take care when partial_cond_inds is not a sequence...
       # ... drop = FALSE handles case where it is only 1 number
       # ... apply returns a list of zeros when partial_cond_inds is empty
       partial_cond_inds <- setdiff(trials, trial)

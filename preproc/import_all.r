@@ -228,8 +228,8 @@ import_all <- function(loc){
     # Sometimes the error message 'e' is not very helpful so check warnings...
     if (exists('w')) print(w)
   }
-  saveRDS(ag_input, paste(base_dir, '/data/', 'ag_input.rds', sep = ''))
-  saveRDS(ag_subj , paste(base_dir, '/data/', 'ag_subjs.rds', sep = ''))
+  saveRDS(ag_input, paste(base_dir, 'ag_input.rds', sep = ''))
+  saveRDS(ag_subj , paste(base_dir, 'ag_subjs.rds', sep = ''))
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values
