@@ -239,16 +239,27 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   regressor_names <- ifelse(seperate, list(trial_names), list(cond_names))[[1]]
   colnames(conv_regs) <- regressor_names
 
-  # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
+  # Throw away bad conditions
   cond_nums  <- setdiff(cond_nums, bad_cond)
-  design_mat <- fmri.design(conv_regs[, cond_nums], order = 2)
-  regressor_names <- regressor_names[cond_nums]
+  cond_names <- cond_names[cond_nums]
+  index_list <- index_list[cond_nums]
 
-  # Remove the unnecessary intercept column (which will otherwise be identical to col. 1)
-  n_good_conds <- dim(design_mat)[2] - 3
-  design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
-  colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
-  regressor_names <- colnames(design_mat)
+  if (seperate) {
+    # Get design matrix but dith the linear drift term
+    design_mat <- fmri.design(conv_regs, order = 0)
+    design_mat <- design_mat[,1:(dim(design_mat)[2] - 1)]
+
+  } else {
+    # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
+    design_mat <- fmri.design(conv_regs[, cond_nums], order = 2)
+    regressor_names <- regressor_names[cond_nums]
+
+    # Remove the unnecessary intercept column which is redundant intercept est. in lm()
+    n_good_conds <- dim(design_mat)[2] - 3
+    design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
+    colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
+    regressor_names <- colnames(design_mat)
+  }
 
   # Add the motion parameters to the set of regressors
   design_mat <- cbind(design_mat, as.matrix(fmri_data$movement))
@@ -274,7 +285,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
     colnames(coefficients) <- colnames(fmri_data$acts)
 
     fit_cols <- function(x) {
-      return(fit_ag_lm(conv_regs, design_mat, x, index_list, cond_nums))
+      return(fit_ag_lm(conv_regs, as.matrix(fmri_data$movement), x, index_list))
     }
 
   } else {
@@ -287,7 +298,8 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
   # Perform regression and time it
   time <- system.time(
-    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    #coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    coefficients <- lapply(data.frame(fmri_data$acts), fit_cols)
   )
 
   # Report time required for regression
@@ -315,27 +327,45 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 # ------------------------------------------------------------------------------ #
 #         This performs the linear model fitting for the ancestral graphs        #
 # ------------------------------------------------------------------------------ #
-fit_ag_lm <- function(conv_regs_ag, design_mat, activations, index_list, conds) {
-  trial_betas <- rep(NA, dim(conv_regs_ag)[2])
-  names(trial_betas) <- colnames(conv_regs_ag)
+fit_ag_lm <- function(regressors, movement, activations, index_list) {
 
+  # Initialize the output variable:
+  # Linear model coefficients for each trial
+  trial_betas <- rep(NA, dim(regressors)[2])
+  names(trial_betas) <- colnames(regressors)
+
+  # Index into trial_betas for use in loops below
   global_trial_num <- 0
-  for (cond in conds[conds <= 4]) {
+
+  # Construct the "whole condition" regressors
+  whole_cond_regs <- sapply(index_list, function(x) {apply(regressors[, x[1]:x[2] ],1,sum)})
+
+  conds <- 1:length(index_list)
+  for (cond in conds) {
+
+    # If not, get the set of trials in this condition
     beg <- index_list[[cond]][1]
     end <- index_list[[cond]][2]
+    trials <- beg:end
 
+    # Columns for the other whole condition regressors
     other_conds <- setdiff(conds, cond)
 
-    trials <- beg:end
+    # Construct a regressor for each trial and fit lm with everything else
+    # as nnuisance vars
     for (trial in trials) {
       global_trial_num <- global_trial_num + 1
 
-      remaining_inds <- setdiff(trials, trial)
-      remaining_regs <- apply(conv_regs_ag[,remaining_inds],1,sum)
+      # Note: take care when partial_cond_inds is not a sequence...
+      # ... drop = FALSE handles case where it is only 1 number
+      # ... apply returns a list of zeros when partial_cond_inds is empty
+      partial_cond_inds <- setdiff(trials, trial)
+      partial_cond_reg  <- apply(regressors[,partial_cond_inds, drop = FALSE],1,sum)
 
-      design <- cbind(conv_regs_ag[,trial], remaining_regs, design_mat[,other_conds])
+      design <- cbind(regressors[,trial], partial_cond_reg, whole_cond_regs[,other_conds], movement)
       fit    <- lm(activations ~ design)
 
+      # Save the coefficients
       trial_betas[global_trial_num] <- fit$coefficients[2]
     }
   }
