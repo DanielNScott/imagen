@@ -24,7 +24,7 @@ ag_analysis <- function(dir_analy, data) {
   indices <- index_ag_data(data)
 
   # Define conditions to be evalauted seperatly in fit_ag_models.r
-  cond <- indices[ c('St', 'Sr', 'Go', 'GoL', 'GoR') ]
+  cond <- indices[ c('St', 'StL', 'StR', 'Sr', 'SrL', 'SrR', 'Go', 'GoL', 'GoR') ]
 
   # Select the graph nodes for the connectivity networks to examine and source models of them
   #rois  <- c("CaudateR40exc" ,"PreSMARsmall","IFGR", "maxSTNR25exc","maxGPeR30exc","maxGPiR30exc","ThalamusR40exc")

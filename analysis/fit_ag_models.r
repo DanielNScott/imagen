@@ -35,7 +35,7 @@ fit_ag_models <- function(data, models, cond, rois) {
   P_direct   <- setup_matrix('chi-p')
 
   # make matrix to save log-likelihood per models en per ppn
-  logL_direct <- setup_matrix('logL')
+  logLike    <- setup_matrix('logL')
 
   # save number of observations for each subject to compute BIC
   nObs <- setup_matrix('nobs')
@@ -60,6 +60,8 @@ fit_ag_models <- function(data, models, cond, rois) {
   for (cond_num in 1:n_conds) {
 
     for (subj_num in 1:n_subj) {
+
+        tryCatch({
         Aic   <- c()
         Fit   <- c()
         P     <- c()
@@ -86,22 +88,25 @@ fit_ag_models <- function(data, models, cond, rois) {
           nobs[model_num]  <- length(cond[[cond_num]][[subj_num]])
         }
 
-      AIC_direct[subj_num, ]  <- round(Aic, digits=2)
-      Fit_direct[subj_num, ]  <- round(Fit, digits=2)
-      P_direct[   subj_num, ] <- round(P, digits=2)
-      logL_direct[subj_num, ] <- Aic - 2*nPars
+      AIC_direct[subj_num, ] <- round(Aic, digits=2)
+      Fit_direct[subj_num, ] <- round(Fit, digits=2)
+      P_direct[  subj_num, ] <- round(P, digits=2)
+      logLike[   subj_num, ] <- -1*(Aic - 2*nPars)/2
 
       nObs[subj_num, ] <- round(nobs[model_num], digits=2)
-
+      }, error = function(e){
+        print(paste('Error processing subject', toString(subj_num)))
+        print(e)
+      })
     }
 
     A = cbind(AIC_direct, P_direct)
 
     # Radom effects AIC with pooled log likelihood over subjects
-    AIC.direct <- apply(logL_direct, 2, sum)+2*nPars
+    AIC.direct <- -2*apply(logLike, 2, sum) + 2*nPars
 
     # Random effects BIC with pooled log likelihood over subjects
-    BIC.totaal <- apply(logL_direct, 2, sum)+(nPars*log(apply(nObs, 2, sum)))
+    BIC.totaal <- -2*apply(logLike, 2, sum) + (nPars*log(apply(nObs, 2, sum)))
 
     # Get the number of subjects where the model fits
     nfit.rfx   <- apply(ifelse(A[, (n_models+1):(2*n_models)]>0.049, 1, 0), 2, sum)

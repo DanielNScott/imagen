@@ -198,7 +198,7 @@ import_all <- function(loc){
   ag_input <- list()
   ag_subj  <- c()
 
-  for (id in data$subj_list[1:30,]) {
+  for (id in data$subj_list[,]) {
     tryCatch({
 
       # Retrieve and preprocess rois and trial data

@@ -44,8 +44,8 @@ define_ag_models <- function() {
           ),ug = UG( ~ rPreSMA*rIFG + rSTN  + rGPe ))
 
   # Package
-  models <- list(ag0, ag1, ag2, ag3)
-  names(models) <- c('hindi', 'hyp', 'indir', 'dir')
+  models <- list(ag0, ag1, ag2)#, ag3)
+  names(models) <- c('hindi', 'hyp', 'indir')#, 'dir')
 
   return(models)
 }

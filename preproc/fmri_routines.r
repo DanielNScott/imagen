@@ -266,17 +266,19 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   colnames(design_mat) <- c(regressor_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   regressor_names <- colnames(design_mat)
 
+  # Setup for regressions...
+  n_voxels     <- dim(fmri_data$acts)[2]
+  n_regressors <- dim(design_mat)[2]
+
 
   # Indicate pool for core-level SIMD parallelism:
   # Note: Using makeClust() here will break this on some clusters which do not let R
   #       use socket based core communication. mclapply defaults to fork-based dispatching.
   cores <- detectCores()
-  flog.info('Using %d cores', cores[1])
+  flog.info('Cores found: %d', cores[1])
+  cores <- min(detectCores(), n_voxels)
+  flog.info('Using %d of them (for %d rois/voxels).', cores[1], n_voxels)
 
-
-  # Setup for regressions...
-  n_voxels     <- dim(fmri_data$acts)[2]
-  n_regressors <- dim(design_mat)[2]
 
   # For AG, need user defined function,
   # for std analysis need robust linear model
@@ -298,8 +300,8 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
   # Perform regression and time it
   time <- system.time(
-    #coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-    coefficients <- lapply(data.frame(fmri_data$acts), fit_cols)
+    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    #coefficients <- lapply(data.frame(fmri_data$acts), fit_cols)
   )
 
   # Report time required for regression
