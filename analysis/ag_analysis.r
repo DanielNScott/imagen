@@ -137,6 +137,17 @@ ag_analysis <- function(dir_analy, data) {
     rownames(beta_output[[rn]]) = names(data)
   }
 
+  #------------------------------------------------------------------------------#
+  #          Newman-Girvan community detection on covariance matrices            #
+  #------------------------------------------------------------------------------#
+  # source(paste(dir_analy, '/community_detection.r'   , sep = ''))
+  #dist <- matrix(nrow = 190, ncol = 190)
+  #for (i in 1:190) {
+  #  for (j in i:190) {
+  #    dist[i,j] <- cov_dist(ag$fitST[[i]]$Shat, ag$fitST[[j]]$Shat)
+  #  }
+  #}
+
   print('Finished!')
   output <- list(models = models, fits = model_fits, betas = beta_output, fitST = fitST, fitSR = fitSR)
   return(output)
