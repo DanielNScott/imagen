@@ -164,3 +164,168 @@ ggplot(dmelt, aes(x = value)) +
   print(paste('Fraction of STOP_SUCCESS betas which are significant:', frac_stop_sig))
 
   return (lm_list)
+
+
+
+
+
+
+
+  replace_bad_names <- function(data){
+
+  dict <- list(
+    c('', ''),
+    c('', ''),
+    c('IQ_PR_14', ''),
+    c('IQ_VC_14', ''),
+    c('GB_SSRT_14', ''),
+    c('agn_mean_correct_latency_negative_14', ''),
+    c('agn_mean_correct_latency_positive_14', ''),
+    c('agn_total_omissions_negative_14', ''),
+    c('agn_total_omissions_positive_14', ''),
+    c('cgt_delay_aversion_14', ''),
+    c('cgt_deliberation_time_14', ''),
+    c('cgt_quality_of_decision_making_14', ''),
+    c('cgt_overall_proportion_bet_14', ''),
+    c('cgt_risk_adjustment_14', ''),
+    c('cgt_risk_taking_14', ''),
+    c('prm_percent_correct_14', ''),
+    c('rvp_a_14', ''),
+    c('swm_between_errors_14', ''),
+    c('swm_strategy_14', ''),
+    c('log10.k._14', ''),
+    c('mu_targ_dur_co_14', ''),  # MID task parameters
+    c('mu_targ_left_co_14', ''),
+    c('mu_rewarded_co_14', ''),
+    c('mu_high_rewarded_co_14', ''),
+    c('mu_std_inv_rt_14', ''),
+    c('mu_int_14', ''),
+    c('sig_targ_dur_co_14', ''),
+    c('sig_targ_left_co_14', ''),
+    c('sig_rewarded_co_14', ''),
+    c('sig_high_rewarded_co_14', ''),
+    c('sig_std_inv_rt_14', ''),
+    c('sig_int_14' '')
+    )
+  # Task data at age 14:
+  features_14_task_raw <- c('IQ_PR_14', 'IQ_VC_14', 'GB_SSRT_14',
+      'agn_mean_correct_latency_negative_14',
+      'agn_mean_correct_latency_positive_14',
+      'agn_total_omissions_negative_14',
+      'agn_total_omissions_positive_14',
+      'cgt_delay_aversion_14',
+      'cgt_deliberation_time_14',
+      'cgt_quality_of_decision_making_14',
+      'cgt_overall_proportion_bet_14',
+      'cgt_risk_adjustment_14',
+      'cgt_risk_taking_14',
+      'prm_percent_correct_14',
+      'rvp_a_14',
+      'swm_between_errors_14',
+      'swm_strategy_14',
+      'log10.k._14', setdiff(colnames(sst_params),'Subject'), setdiff(colnames(mid_params),'Subject'))
+
+
+   new_sst_names <- c('mu_go_14', 'mu_stop_14', 'sigma_go_14','sigma_stop_14','tau_go_14','tau_stop_14','p_tf_14')
+   new_mid_names <- c('mu_targ_dur_co_14', 'mu_targ_left_co_14',  'mu_rewarded_co_14',
+                      'mu_high_rewarded_co_14', 'mu_std_inv_rt_14', 'mu_int_14',
+                      'sig_targ_dur_co_14','sig_targ_left_co_14','sig_rewarded_co_14',
+                      'sig_high_rewarded_co_14','sig_std_inv_rt_14','sig_int_14')
+
+   new_agn_names <- c('agn_mean_corr_lat_neg_14', 'agn_mean_corr_lat_pos_14',
+                      'agn_num_omis_neg_14', 'agn_num_omis_pos_14')
+
+   new_cgt_names <- c('cgt_delay_avers_14','cgt_delib_14','cgt_quality_14','cgt_prop_bet_14',
+                      'cgt_risk_adjust_14','cgt_risk_taking_14')
+
+   new_espad_names <- c('alc_14', 'nic_14', 'amphet_14', 'coke_14', 'crack_14', 'ghb_14',
+                        'glue_14', 'hash_14', 'ketamine_14', 'lsd_14', 'mushrooms_14', 'narc_14')
+
+   features_14_task <- c('IQ_PR_14', 'IQ_VC_14', 'GB_SSRT_14', new_agn_names, new_cgt_names,
+                         'prm_perc_corr_14', 'rvp_a_14', 'swm_btwn_errs_14', 'swm_strategy_14',
+                         'log10.k._14', new_sst_names, new_mid_names)
+
+   misc_task_names <- c('IQ_PR_14', 'IQ_VC_14', 'GB_SSRT_14', 'prm_perc_corr_14', 'rvp_a_14',
+                        'swm_btwn_errs_14', 'swm_strategy_14', 'log10.k._14')
+
+    features_14_survey_raw <- c('Sex_best_M0_14', 'PDS_14','All_Alc_14', 'All_Nic_14',
+           'espad_life_amphet_14',
+           'espad_life_coke_14',
+           'espad_life_crack_14',
+           'espad_life_ghb_14',
+           'espad_life_glue_14',
+           'espad_life_hash_14',
+           'espad_life_ketamine_14',
+           'espad_life_lsd_14',
+           'espad_life_mushrooms_14',
+           'espad_life_narcotic_14')
+
+   # Features left out:
+   #       'espad_life_anabolic_14',
+   #       'espad_life_heroin_14',
+   #       'espad_life_mdma_14',
+   #       'espad_life_tranq_14'
+
+   features_14_survey <- c('bio_sex_14', 'pds_14', new_espad_names)
+
+   features_18_task <- c('log10.k._18', 'agn_mean_correct_latency_negative_18', 'agn_mean_correct_latency_neutral_18',
+     'agn_mean_correct_latency_positive_18', 'agn_total_omissions_negative_18', 'agn_total_omissions_neutral_18',
+     'agn_total_omissions_positive_18', 'cgt_delay_aversion_18', 'cgt_deliberation_time_18',
+     'cgt_overall_proportion_bet_18', 'cgt_quality_of_decision_making_18', 'cgt_risk_adjustment_18',
+     'cgt_risk_taking_18', 'prm_percent_correct_18', 'rvp_a_18', 'swm_between_errors_18', 'swm_strategy_18')
+
+    #features_18_survey <- c('age_18', 'X6.life.nic_18', 'X8a.life.alc_18', 'Life.amph_18', 'Life.anab_18',
+    #    'Life.coke_18', 'Life.crack_18', 'Life.hash.thc_18', 'Life.heroin_18', 'Life.GHB_18', 'Life.glue_18',
+    #    'Life.ketamine_18', 'Life.lsd_18', 'Life.MDMA_18', 'Life.mushrooms_18', 'Lif.narc_18', 'Life.tranq_18')
+
+    features_18_survey <- c('X6.life.nic_18', 'X8a.life.alc_18', 'Life.amph_18', 'Life.anab_18',
+        'Life.coke_18', 'Life.crack_18', 'Life.hash.thc_18', 'Life.heroin_18',
+        'Life.ketamine_18', 'Life.lsd_18', 'Life.MDMA_18', 'Life.mushrooms_18', 'Lif.narc_18')
+
+
+    n_feat_task   <- length(features_14_task)
+    n_feat_survey <- length(features_14_survey)
+
+    for (i in 1:n_feat_task){
+        old_name <- features_14_task_raw[[i]]
+        new_name <- features_14_task[[i]]
+        colnames(raw_df)[colnames(raw_df) == old_name] <- new_name
+    }
+    for (i in 1:n_feat_survey){
+        old_name <- features_14_survey_raw[[i]]
+        new_name <- features_14_survey[[i]]
+        names(raw_df)[names(raw_df) == old_name] <- new_name
+    }
+
+
+    output <- list('raw' = raw_df, 'survey_names_14' = features_14_survey,
+                   'task_names_14' = features_14_task, 'sst_names' = new_sst_names,
+                   'mid_names' = new_mid_names, 'espad_names' = new_espad_names,
+                   'cgt_names' = new_cgt_names, 'agn_names' = new_agn_names,
+                   'msc_names' = misc_task_names,
+                   'task_names_18' = features_18_task,
+                   'survey_names_18' = features_18_survey
+                   )
+    return(output)
+}
+# ------------------------------------------------------------------------------ #
+
+
+
+
+
+
+# ------------------------------------------------------------------------------ #
+#
+# ------------------------------------------------------------------------------ #
+somethingorother <- function () {
+  # Remove the wierd negative one values from the continuous task variables.
+  data$raw[data$task_names_14][data$raw[data$task_names_14] == -1] <- NA
+  data$raw[data$task_names_18][data$raw[data$task_names_18] == -1] <- NA
+
+
+  cat('Hence, the following features are retained:\n')
+  print(colnames(data$raw))
+
+}
+# ------------------------------------------------------------------------------ #

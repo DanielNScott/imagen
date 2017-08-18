@@ -54,7 +54,7 @@ read_mid_param_file <- function(filename){
                         'Cue is High Reward Coeff', 'StDev of 1/RT', 'Intercept')
   mid_params_type  <- c('Expectation', 'Variance')
 
-  colnames(mid_params) <- c( outer( mid_params_names, c('Expectation', 'Variance'), FUN=paste ,sep=" "))
+  colnames(mid_params) <- c( outer( mid_params_names, c('Expectation', 'Variance'), FUN = paste ,sep = " "))
 
   mid_params['Subject'] <- unique(mid_params_raw['Subject'])
   for (row in  1:dim(mid_params_raw)[1]) {
@@ -66,6 +66,11 @@ read_mid_param_file <- function(filename){
     mid_params[subj_msk, paste(param,'Expectation',sep = ' ')] <- mid_params_raw[row,'Expectation']
     mid_params[subj_msk, paste(param,'Variance'   ,sep = ' ')] <- mid_params_raw[row,'Variance'   ]
   }
+
+  new_param_names      <- c('mid_dur', 'mid_loc', 'mid_rew', 'mid_high_rew', 'mid_tau_stdev', 'mid_int')
+  new_expanded_names   <- c( outer( new_param_names, c('', '_var'), FUN = paste ,sep = ""))
+  colnames(mid_params) <- c(new_expanded_names, 'Subject')
+
   return(mid_params)
 }
 # ------------------------------------------------------------------------------ #
@@ -128,12 +133,11 @@ import_all <- function(loc){
   library('futile.logger')
   #source('fmri_routines.r')
 
-  # Where is data located, and who are the subjects?
-  if (loc == 'local') {
-    base_dir      <- '/home/dan/projects/imagen/data/'
-  } else {
-    base_dir      <- '/users/dscott3/projects/imagen/data/'
-  }
+  # Different base directories for cluster or local use
+  if (loc == 'local') { base_dir <- '/home/dan/projects/imagen/data/'
+  } else {              base_dir <- '/users/dscott3/projects/imagen/data/'}
+
+  # Sandbox' subjects are training set once analyses pipeline is done
   sbx_subj_list <- paste(base_dir, 'sandbox_subject_list.csv', sep = '')
 
   # Read subject list & demarcate test/training split
@@ -141,6 +145,9 @@ import_all <- function(loc){
   data$subj_list  <- read.csv(sbx_subj_list, header = TRUE, sep = ',')
   data$train_inds <- 1:198
   data$test_inds  <- 199:396
+
+  # Initialize principle data frame (data$raw) with subjects and their partition.
+  data$raw <- data.frame(Subject = data$subj_list, set = rep( as.factor(c('train', 'test')), each = 198))
 
   if (FALSE) {
   ### ---------------------- ###
@@ -150,16 +157,20 @@ import_all <- function(loc){
   sst_params_files <- paste(base_dir, c('test_parameters.csv', 'train_parameters.csv'), sep = '')
 
   # Read the SST parameters files
+  # Test partition
   subj_ids_1   <- as.matrix(data$subj_list[data$test_inds, 'Subject'])
   sst_params_1 <- read_sst_param_file(sst_params_files[1])
   colnames(subj_ids_1) <- 'Subject'
 
+  # Training partition
   subj_ids_2   <- as.matrix(data$subj_list[data$train_inds, 'Subject'])
   sst_params_2 <- read_sst_param_file(sst_params_files[2])
   colnames(subj_ids_2) <- 'Subject'
 
   # Package into an data matrix
-  data$raw <- rbind( cbind(subj_ids_1, sst_params_1), cbind(subj_ids_2, sst_params_2) )
+  # Columns are in different orders, but row bind matches on them.
+  sst_data <- rbind( cbind(subj_ids_1, sst_params_1), cbind(subj_ids_2, sst_params_2))
+  data$raw <- merge(data$raw, sst_data, by = "Subject", all = TRUE)
   data$names$sst <- setdiff(colnames(sst_params_1), c('Subject'))
 
   # Read the MID fit file in:
@@ -179,6 +190,7 @@ import_all <- function(loc){
   #
   # Reading in more than one subjects complete FMRI data at a time would be
   # impossibly memory intensive
+  if (TRUE) {
   visit <- 'BL'
   task  <- 'SST'
 
@@ -199,7 +211,7 @@ import_all <- function(loc){
   fmri_betas <- list()
   ag_subj  <- c()
 
-  for (id in data$subj_list[,]) {
+  for (id in data$subj_list[1:100,]) {
     tryCatch({
 
       # Retrieve and preprocess rois and trial data
@@ -232,6 +244,7 @@ import_all <- function(loc){
   }
   saveRDS(fmri_betas, paste(base_dir, 'fmri_betas.rds', sep = ''))
   saveRDS(ag_subj , paste(base_dir, 'fmri_subjs.rds', sep = ''))
+  }
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values
@@ -266,14 +279,64 @@ import_all <- function(loc){
     data$names[names(file_data$names)] <- file_data$names
   }
 
-  ### NEEDS UPDATE
-  # Convert annoying names into better ones
-  #data <- replace_bad_names(sst_params, mid_params, raw_df)
+  return(data)
+}
+# ------------------------------------------------------------------------------ #
 
 
-  ### Generate additional summary fields and the like
-  source('gen_addnl_flds.r')
-  data <- gen_addnl_flds(data)
+# ------------------------------------------------------------------------------ #
+#             Generate some additional fields (i.e. feature construction)        #
+# ------------------------------------------------------------------------------ #
+gen_addnl_flds <- function(data) {
+
+  # TCI impulsivity really looks like it falls into categories 'general' and 'financial' to me...
+  # Also, it looks like taking rowSums is fine -- the summary vars get NAs if there are NAs in row.
+  tci_gen_imp <- c('tci010', 'tci014', 'tci047', 'tci071', 'tci102', 'tci123', 'tci193', 'tci210')
+  tci_fin_imp <- c('tci024', 'tci059', 'tci105', 'tci215')
+
+  data$raw['tci_gen_imp'] <- rowSums(data$raw[, tci_gen_imp])
+  data$raw['tci_fin_imp'] <- rowSums(data$raw[, tci_fin_imp])
+  data$names$TCI <- c(data$names$TCI, 'tci_gen_imp', 'tci_fin_imp')
+
+  #SURPS impulsivity just needs to be summed.
+  # Question 22 about being manipulative is not included here.
+  surps_imp   <- c('surps5', 'surps2', 'surps11', 'surps15')
+
+  data$raw['surps_imp']   <- rowSums(data$raw[, surps_imp])
+  data$names$SURPS <- c(data$names$SURPS, 'surps_imp')
+
+  # Need some ESPAD summaries and other stuff...
+  # Individual fields:
+  # C.18i    - likelihood of regret
+  # C.prev31 - scaled num drinks on typical day in which drinking
+  # C.21     - scaled num drinks needed to get drunk
+  # C.19b    - scaled num times drunk in last year
+  # C.6      - scaled num times smoked in life -- should match 'espad_6_life_nic'
+  #
+  #data$raw['binge'] <- data$raw[,'C.prev31'] / data$raw[,'bmi']
+  #data$names$ESPAD  <- c(data$names$ESPAD, 'binge')
+
+  # Reconstruct stop and go distributions and their variances
+  data$raw$SSRTGo    <- data$raw$mu_go   + data$raw$tau_go
+  data$raw$SSRTStop  <- data$raw$mu_stop + data$raw$tau_stop
+
+  data$raw$SSRTVarGo   <- data$raw$sigma_go^2   + data$raw$tau_go^2
+  data$raw$SSRTVarStop <- data$raw$sigma_stop^2 + data$raw$tau_stop^2
+
+  data$names$sst <- c(data$names$sst, 'SSRTGo', 'SSRTStop', 'SSRTVarGo', 'SSRTVarStop')
+
+  return(data)
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+#             Generate some additional fields (i.e. feature engineering)         #
+# ------------------------------------------------------------------------------ #
+index <- function(data) {
+
+  #data$names$index_columns <- c('Subject', 'Set')
+  #data$raw['Set'] <-
 
   return(data)
 }

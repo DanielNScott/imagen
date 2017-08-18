@@ -84,13 +84,37 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
   roi_voxels  <- read.csv(file = paste(data_dir, '/roi_voxels.csv', sep = ''), header = TRUE)
   rois <- colnames(roi_voxels)
 
-  tmp <- matrix(NA, dim(activations)[1], length(rois))
-  colnames(tmp) <- rois
+  n_voxels_by_roi <- colSums(roi_voxels)
+  n_voxels_total  <- sum(n_voxels_by_roi)
+
+  # Whole ROI Averaging
+  # n_voxels_total  <- length(rois)
+  # colnames(tmp) <- rois
+
+  #tmp <- matrix(NA, dim(activations)[1], n_voxels_total)
+  tmp <- matrix(NA, dim(activations)[1], 0)
   for (roi in rois) {
-    #activations[roi] <- rowMeans(activations[, as.logical(roi_voxels)], na.rm = TRUE)
-    tmp[,roi]    <- rowMeans(activations[, as.logical(roi_voxels[[roi]]) ], na.rm = TRUE)
+    # Whole roi average
+    # tmp[,roi]    <- rowMeans(activations[, as.logical(roi_voxels[[roi]]) ], na.rm = TRUE)
+
+    # Lazy alternative to mask FIX THIS LATER
+    tmp <- cbind(tmp, activations[, as.logical(roi_voxels[[roi]]) ])
   }
+
+  # Keeping each roi: This doesn't work because masks aren't mutually exclusive...
+  # activations <- activations[, rowSums( roi_voxels)]
+
+  # Indiidual STN voxels...
+  # stn <- activations[, as.logical(roi_voxels[['rSTN']]) ]
+  # tmp <- cbind(tmp, stn)
+  # rois <- append(rois, paste('STN', 1:sum(roi_voxels[['rSTN']]), sep = ''))
+
   activations <- tmp
+
+  # For plotting out ROI voxels...
+  #d <- data.frame(activations[, as.logical(roi_voxels[['rSTN']]) ], TR = 1:444)
+  #ggplot(melt(d, id.vars = 'TR'), aes(TR, value)) + geom_point() +
+  #  facet_wrap(~ variable) + ggtitle('Raw STN Timeseries')
 
   # Save the fmri_series data (for raw <-> processed comparison)
   #saveRDS(activations, 'activations.rds')
@@ -131,9 +155,14 @@ import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, dat
 
   # Return data
   data <- list(acts = activations, spikes = spike_inds, task_outcome = task_outcome,
-               task_times = task_times, task_key = task_key, stim = stim, movement = movement)
+               task_times = task_times, task_key = task_key, stim = stim, movement = movement,
+               n_voxels_by_roi = n_voxels_by_roi, rois = rois)
   return(data)
 
+  # For looking at ROIs after preprocessing...
+  #d <- data.frame(activations[, 8:13], TR = 1:444)
+  #ggplot(melt(d, id.vars = 'TR'), aes(TR, value)) + geom_point() +
+  #  facet_wrap(~ variable) + ggtitle('Processed STN Voxel Timeseries')
 } # EOF
 # ------------------------------------------------------------------------------ #
 
@@ -182,6 +211,10 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
     # Array for events convolved w/ HRF
     conv_regs <- array(dim = c(n_scans, n_conds))
+
+    # FIR
+    #fir_res <- 1
+    #fir_dmat  <- matrix(nrow = n_scans*(1/fir_res), ncol = 0)
   }
 
   # Some conditions do not occur - they will be removed
@@ -232,12 +265,23 @@ fit_fmri_glm <- function(fmri_data, seperate) {
 
        # Standard fmri analysis - convolve hrf w/ event times:
        conv_regs[,cond] <- fmri.stimulus(scans = n_scans, onsets = onsets, duration = durations)
-     }
+
+       # Extract FIR HRFs
+       #fir_dmat <- cbind(fir_dmat, fir_design(onsets = onsets, n_scans = n_scans, res = fir_res))
+    }
   }
 
   # Assign appropriate names: Need to list-ify and un-listify for if-else.
   regressor_names <- ifelse(seperate, list(trial_names), list(cond_names))[[1]]
   colnames(conv_regs) <- regressor_names
+
+  # FIR stuff - Can't seem to get this working reasonably
+  #approx_fun <- function(y) {approx(1:444, y, xout = seq(fir_res, 444, fir_res), rule = 2)$y }
+  #    For testing:
+  #interp <- rowSums(apply(conv_regs[,c(1,3:7)], 2, approx_fun ))
+  #fir_hrf_est <- corpcor::pseudoinverse( t(fir_dmat) %*% fir_dmat) %*% t(fir_dmat) %*% interp
+  #    For use:
+  #fir_hrf_est <- corpcor::pseudoinverse( t(fir_dmat) %*% fir_dmat) %*% t(fir_dmat) %*% fmri_data$acts
 
   # Throw away bad conditions
   cond_nums  <- setdiff(cond_nums, bad_cond)
@@ -270,7 +314,6 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   n_voxels     <- dim(fmri_data$acts)[2]
   n_regressors <- dim(design_mat)[2]
 
-
   # Indicate pool for core-level SIMD parallelism:
   # Note: Using makeClust() here will break this on some clusters which do not let R
   #       use socket based core communication. mclapply defaults to fork-based dispatching.
@@ -278,7 +321,6 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   flog.info('Cores found: %d', cores[1])
   cores <- min(detectCores(), n_voxels)
   flog.info('Using %d of them (for %d rois/voxels).', cores[1], n_voxels)
-
 
   # For AG, need user defined function,
   # for std analysis need robust linear model
@@ -294,23 +336,54 @@ fit_fmri_glm <- function(fmri_data, seperate) {
     coefficients <- matrix(NA, n_regressors, n_voxels )
 
     fit_cols <- function(x) {
-      lmRob(x ~ design_mat)$coefficients[2:(n_regressors + 1)]
+      model  <- lmRob(x ~ design_mat)
+      coef   <- model$coefficients[2:(n_regressors + 1)]
+      p_vals <- summary(model)$coefficients[,4]
+
+      return(list(coef, p_vals))
     }
   }
 
   # Perform regression and time it
   time <- system.time(
-    coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    coef_and_ps <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+    #coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
     #coefficients <- lapply(data.frame(fmri_data$acts), fit_cols)
   )
+
+  # Recovery test:
+  # design_mat <- design_mat[,1:8]
+  # n_fake_vox <- 1
+  # noise      <- matrix(rnorm(444* n_fake_vox, mean = 0, sd = 0.1), 444)
+  # betas      <- rnorm(8, mean = 2, sd = 2)
+  # fake_vox   <- t(apply(design_mat, 1, function(x) {betas * x} ))
+  # fake_acts  <- rowSums(fake_vox) + noise
+  # model      <- summary(lmRob(fake_acts ~ design_mat))
+  # rbind(model$coefficients[2:9,1], betas, model$coefficients[2:9, 4])
 
   # Report time required for regression
   flog.info('Computation time for voxel betas:')
   print(time)
   #saveRDS(coefficients, 'betas2.rds')
+  #coef_and_ps <- readRDS('coef_and_ps.rds')
 
-  # Return coefficients to desired format
+  # Return coefficients to desired format, using only significant voxels
+  coefficients <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
+  p_values     <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
+  sig_voxels   <- colSums(p_values[2:4,]) < 0.05
+  roi_beg_end  <- c(1, cumsum(fmri_data$n_voxels_by_roi))
+  sig_beg_end  <- integer(8)
+  for (i in 2:8) { sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]]) }
+  sig_beg_end <- cumsum(sig_beg_end)
+  sig_beg_end[1] <- 1
+  y <- matrix(0, 15, 7)
+  for (i in 2:8) {y[,i - 1] <- rowSums(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]]) }
+  coefficients <- y
+  rownames(coefficients) <- colnames(design_mat)
+  colnames(coefficients) <- fmri_data$rois
   coefficients <- data.frame(coefficients)
+
+  # Return names...
   if (!seperate) { rownames(coefficients) <- colnames(design_mat)}
 
   # Some diagnostic plots...
@@ -377,9 +450,10 @@ fit_ag_lm <- function(regressors, movement, activations, index_list) {
 # ------------------------------------------------------------------------------ #
 #               A finite impulse response model, currently unused.               #
 # ------------------------------------------------------------------------------ #
-fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels) {
+fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels, TR = 1, ...) {
+
   # Scale parameter - sets resolution
-  scale <- 10
+  scale <- 1
 
   # Rescale onsets
   onsets    <- onsets    * scale
@@ -397,7 +471,7 @@ fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels) {
   #else if (length(durations) != no) {
   #  stop("Length of duration vector does not match the number of onsets!")
   #}
-  stims <- rep(0, ceiling(scans))
+  stims <- rep(0, ceiling(n_scans))
 
   ## ESTIMATE HRF USING FIR BASIS SET
 
@@ -406,25 +480,106 @@ fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels) {
   hrf_len <- 16
 
   # BASIS SET FOR EACH CONDITOIN IS A TRAIN OF INPULSES
-  fir_bases <- zeros(n_scans, hrf_len*n_conds)
+  fir_bases <- matrix(0, n_scans, hrf_len*n_conds)
 
   for (cond in 1:n_conds) {
-      col_subset <- ((cond - 1)* hrf_len + 1):(cond*hrf_len)
+    #
+    fir_bases[round(onsets) , 1]  <- 1
 
-      for (onset in 1:numel(onsets[,cond]) ) {
-          #impulse_times <- onsets(onset):onsets(onset) + hrf_len - 1;
-          impulse_times <- seq(onsets(onset), onsets(onset) + hrf_len*scale - 1, scale)
-
-          for (impulse in 1:numel(impulse_times)) {
-              fir_bases(impulse_times(impulse), col_subset(impulse)) <- 1;
-          }
-      }
+    for (i in 2:hrf_len) {
+      # i is the number of the 'time-point' in the hrf.
+      fir_bases[, i] <- c(rep(0, i - 1), fir_bases[1:(444 - (i - 1)), 1])
+    }
   }
 
   # ESTIMATE HRF FOR EACH CONDITION AND VOXEL
-  fir_hrf_est <- pseudoinverse(fir_bases %*% fir_bases) * fir_bases %*% activations
+  fir_hrf_est <- corpcor::pseudoinverse( t(fir_bases) %*% fir_bases) %*% t(fir_bases) %*% activations
 
   # RESHAPE HRFS
   hHatFIR <- reshape(fir_hrf_est, hrf_len, n_conds, n_voxels)
+
+  return(hHatFIR)
+
+  # d <- melt(data.frame(fir_hrf_est[,1:7], TR = 1:16), id.vars = 'TR')
+  # ggplot(d, aes(TR, value)) + facet_wrap(~variable) + geom_point()
+
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+# ------------------------------------------------------------------------------ #
+fir_design <- function(onsets, n_scans, res = 0.1, hrf_len = 16) {
+
+  scale      <- 1/res
+  fir_design <- matrix(0, n_scans*scale, hrf_len)
+
+  fir_design[round(onsets*scale) , 1]  <- 1
+  for (i in 2:hrf_len) {
+    # i is the number of the 'time-point' in the hrf.
+    zero_pad <- rep(0, (i - 1)*scale)
+    fir_design[, i] <- c(zero_pad, fir_design[1:(n_scans*scale - (i - 1)*scale), 1])
+  }
+
+  return(fir_design)
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+# ------------------------------------------------------------------------------ #
+attach_fmri_results <- function(data) {
+  # Collect the data
+  ag_subjs     <- readRDS('/home/dan/projects/imagen/data/ag_subjs.rds')
+  ag_results   <- readRDS('/home/dan/projects/imagen/data/ag_results.rds')
+
+  fmri_subjs   <- readRDS('/home/dan/projects/imagen/data/fmri_subjs.rds')
+  fmri_results <- readRDS('/home/dan/projects/imagen/data/fmri_betas.rds')
+
+  # Name the connection strengths according to condition
+  cnames  <- colnames(ag_results$betas$connectivity_ST)
+
+  conn_st <- ag_results$betas$connectivity_ST
+  colnames(conn_st) <- paste(colnames(conn_st), 'st', sep = '_')
+
+  conn_sr <- ag_results$betas$connectivity_SR
+  colnames(conn_sr) <- paste(colnames(conn_sr), 'sr', sep = '_')
+
+  conn_ctrst <- conn_st - conn_sr
+  colnames(conn_ctrst) <- paste(cnames, 'st_sr', sep = '_')
+
+  # Attach AG results to the data frame
+  stop_betas <- data.frame('Subject' = ag_subjs, conn_st, conn_sr, conn_ctrst)
+  data$raw   <- merge(data$raw, stop_betas, by = 'Subject', all = TRUE)
+
+  # Compute Stop > Stop respond contrasts and attach them
+  ctrst <- t( sapply(fmri_results, function(x){ unlist(x[2,] - x[3,]) }))
+  colnames(ctrst) <- paste(colnames(ctrst), 'st_sr', sep = '_')
+  ctrst_frame <- data.frame('Subject' = fmri_subjs, data.matrix(ctrst))
+  data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+
+  # Compute Stop > Go contrasts and attach them
+  ctrst <- t( sapply(fmri_results, function(x){ unlist(x[2,] - x[1,]) }))
+  colnames(ctrst) <- paste(colnames(ctrst), 'st_go', sep = '_')
+  ctrst_frame <- data.frame('Subject' = fmri_subjs, data.matrix(ctrst))
+  data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+
+  # Attach stop, stop respond, and go betas
+  ctrst <- t( sapply(fmri_results, function(x){ unlist(x[2,]) }))
+  colnames(ctrst) <- paste(colnames(ctrst), 'st', sep = '_')
+  ctrst_frame <- data.frame('Subject' = fmri_subjs, data.matrix(ctrst))
+  data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+
+  ctrst <- t( sapply(fmri_results, function(x){ unlist(x[3,]) }))
+  colnames(ctrst) <- paste(colnames(ctrst), 'sr', sep = '_')
+  ctrst_frame <- data.frame('Subject' = fmri_subjs, data.matrix(ctrst))
+  data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+
+  ctrst <- t( sapply(fmri_results, function(x){ unlist(x[1,]) }))
+  colnames(ctrst) <- paste(colnames(ctrst), 'go', sep = '_')
+  ctrst_frame <- data.frame('Subject' = fmri_subjs, data.matrix(ctrst))
+  data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+
+  return(data)
 }
 # ------------------------------------------------------------------------------ #
