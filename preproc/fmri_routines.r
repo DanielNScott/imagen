@@ -375,10 +375,15 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   sig_beg_end  <- integer(8)
   for (i in 2:8) { sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]]) }
   sig_beg_end <- cumsum(sig_beg_end)
-  sig_beg_end[1] <- 1
+  sig_beg_end[sig_beg_end == 0] <- 1
   y <- matrix(0, 14, 7)
-  for (i in 2:8) {y[,i - 1] <- rowSums(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]]) }
+  for (i in 2:8) {
+    if (sig_beg_end[i-1] != sig_beg_end[i]) {
+       y[,i - 1] <- rowMeans(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]])
+    }
+  }
   coefficients <- y
+  coefficients <- coefficients[1:dim(design_mat)[2],]
   rownames(coefficients) <- colnames(design_mat)
   colnames(coefficients) <- fmri_data$rois
   coefficients <- data.frame(coefficients)
@@ -391,7 +396,8 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   #+ geom_point(aes(1:444,melt(fmri_data$acts[,503])), col = 'blue')
 
   # Save the linear model, list of conds removed,
-  lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat)
+  lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat,
+                  sig_voxels = sig_voxels, sig_beg_end = sig_beg_end)
   return(lm_list)
 }
 # ------------------------------------------------------------------------------ #
