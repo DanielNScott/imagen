@@ -376,7 +376,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   for (i in 2:8) { sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]]) }
   sig_beg_end <- cumsum(sig_beg_end)
   sig_beg_end[1] <- 1
-  y <- matrix(0, 15, 7)
+  y <- matrix(0, 14, 7)
   for (i in 2:8) {y[,i - 1] <- rowSums(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]]) }
   coefficients <- y
   rownames(coefficients) <- colnames(design_mat)

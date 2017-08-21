@@ -128,7 +128,7 @@ import_generic <- function(data_file, subj_ids){
 # ------------------------------------------------------------------------------ #
 #                Master routine for creating 'data' variable
 # ------------------------------------------------------------------------------ #
-import_all <- function(loc){
+import_all <- function(loc, subj_beg = 1, subj_end = 10){
 
   library('futile.logger')
   #source('fmri_routines.r')
@@ -211,7 +211,7 @@ import_all <- function(loc){
   fmri_betas <- list()
   ag_subj  <- c()
 
-  for (id in data$subj_list[1:100,]) {
+  for (id in data$subj_list[subj_beg:subj_end,]) {
     tryCatch({
 
       # Retrieve and preprocess rois and trial data
@@ -223,7 +223,7 @@ import_all <- function(loc){
 
       # Set up data structure for use in AG analysis
       subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
-      #ag_input[[subj_fldname]]   <- ag_trial_coef$coef
+      #ag_input[[subj_fldname]] <- ag_trial_coef$coef
       fmri_betas[[subj_fldname]] <- sst_roi_response$coef
 
       # Book keeping
@@ -242,8 +242,8 @@ import_all <- function(loc){
     # Sometimes the error message 'e' is not very helpful so check warnings...
     if (exists('w')) print(w)
   }
-  saveRDS(fmri_betas, paste(base_dir, 'fmri_betas.rds', sep = ''))
-  saveRDS(ag_subj , paste(base_dir, 'fmri_subjs.rds', sep = ''))
+  saveRDS(fmri_betas, paste(base_dir, 'fmri_betas_', subj_beg, '_', subj_end, '.rds', sep = ''))
+  saveRDS(ag_subj , paste(base_dir, 'fmri_subjs_', subj_beg, '_', subj_end, '.rds', sep = ''))
   }
 
   #### DOES NOT EXIST YET ###
