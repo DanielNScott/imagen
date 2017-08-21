@@ -13,7 +13,7 @@ plot_cors <- function(data, features) {
   # This fn will put correlations on the panels of the matrix heatmap
   customPanel <- function(x, y, z, ...) {
     panel.levelplot(x, y, z, ...)
-    panel.text(x, y, round(z, 1))
+    #panel.text(x, y, round(z, 1))
   }
 
   # Actual Plot
@@ -31,8 +31,8 @@ density_plot <- function(data, names, title) {
   library(reshape2)
 
   ggplot( melt(data.frame(data$raw[names]), id.vars = NULL), aes(x = value)) +
-  facet_wrap(~variable, scales = "free") + geom_histogram(na.rm = TRUE) +
-  theme_grey() + ggtitle(title)
+  facet_grid(~variable, scales = "free") + geom_histogram(na.rm = TRUE) +
+  theme_bw() + ggtitle(title)
 }
 # ------------------------------------------------------------------------------ #
 
@@ -57,8 +57,8 @@ analysis <- function(data) {
   density_plot(data, feats, 'Impulsivity Surveys')
 
   # ... mid params
-  feats <- c('mid_rew', 'mid_high_rew', 'mid_rew_var', 'mid_high_rew_var')
-  density_plot(data, feats, 'MID Parameters')
+  feats <- c('mid_rew', 'mid_high_rew', 'mid_rew_var', 'mid_high_rew_var', 'shift_go', 'SSRTGo', 'SSRTStop')
+  density_plot(data, feats, 'Model Parameters')
 
   # ... sst params
   feats <- c('shift_go', 'SSRTGo', 'SSRTStop')#, 'SSRTVarGo', 'SSRTVarStop')
@@ -88,7 +88,8 @@ analysis <- function(data) {
   # Pairwise correlations
   feats <- c('tci_gen_imp', 'tci_fin_imp', 'surps_imp', 'discount',
               'adhd_teacher', 'adhd_parent','adhd_child', 'nic_use', 'alc_use',
-              'alc_regret', 'mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go')
+              'alc_regret', 'mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go',
+             data$names$CANTAB, data$names$Age)
   plot_cors(data, feats)
 
   # SPLOMS (Scatter Plot Matrices)
@@ -96,6 +97,12 @@ analysis <- function(data) {
              'mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go')
   splom(data$raw[feats], pscales = 0)
 
+  # Pairwise correlations
+  feats_left <- c('tci_gen_imp', 'tci_fin_imp', 'surps_imp', 'discount',
+                  'adhd_teacher', 'adhd_parent','adhd_child', 'nic_use', 'alc_use', 'alc_regret', 'bmi')
+  feats_right <- c('mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go', data$names$CANTAB, setdiff(data$names$Age, 'bmi'))
+  cmpl <- complete.cases(data$scores[c(feats_left, feats_right)])
+  cca_wrapper(data$scores[feats_left][cmpl,], data$scores[feats_right][cmpl,])
 
 }
 # ------------------------------------------------------------------------------ #
@@ -107,15 +114,15 @@ analysis <- function(data) {
 
 # ------------------------------------------------------------------------------ #
 # ------------------------------------------------------------------------------ #
-task_imp_cc <- function(data){
+#task_imp_cc <- function(data, feats_left, feats_right){
   # What items do we want pairwise correlations for?
-  cor_items <- c('tci_gen_imp','tci_fin_imp','surps_imp','log10.k.','bmi',
-                 'sj1a', 'sj1b','sj1c', 'espad_6_life_nic', 'espad_8a_alc_life')
+#  cor_items <- c('tci_gen_imp','tci_fin_imp','surps_imp','log10.k.','bmi',
+#                 'sj1a', 'sj1b','sj1c', 'espad_6_life_nic', 'espad_8a_alc_life')
 
-  task_names <- c(data$names$sst, data$names$mid, data$names$genes,
-                  data$names$CANTAB)
-  cca_wrapper( complete(data$imp,1)[task_names][data$train_inds,], complete(data$imp,1)[cor_items][data$train_inds,])
-}
+#  task_names <- c(data$names$sst, data$names$mid, data$names$genes,
+#                  data$names$CANTAB)
+#  cca_wrapper( complete(data$imp,1)[task_names][data$train_inds,], complete(data$imp,1)[cor_items][data$train_inds,])
+#}
 
 
 broken <- function() {

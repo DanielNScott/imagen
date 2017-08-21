@@ -16,7 +16,8 @@ cca_wrapper <- function(dset1, dset2){
     nycoef  <- length(cca_res$ycoef[,1])
 
     # Set plot options
-    options(repr.plot.width=9, repr.plot.height=5)
+    op <- par(mar = c(7.5, 4.1, 4.1, 2.1))
+    #options(repr.plot.width = 9, repr.plot.height = 9)
 
     # One figure in row 1 and two figures in row 2
     layout(matrix(c(1, 2, 2, 2, 1, 3, 3, 3), 2, 4, byrow = TRUE))
@@ -37,8 +38,10 @@ cca_wrapper <- function(dset1, dset2){
     print(cca_res$cor)
     #plot(cca_res$cor,type="b", main='Task-Survey Cannonical Correlation Results',
     #     xlab='Canonical Covariate Index', ylab='U-V Correlation')
-    barplot(cca_res$cor, col = colors[1:nlines])
-    abline(h = 0)
+    print('P-values')
+    print(ps$p.value[1:nlines])
+    barplot(cca_res$cor[1:nlines], col = colors[1:nlines], main = 'Canonical Correlations')
+    #abline(h = 0)
 
     # U Coefficients Plot:
     #plotchar <- seq(18,18+nlines,1)
@@ -55,7 +58,7 @@ cca_wrapper <- function(dset1, dset2){
     scaled_xc <- cca_res$xcoef
 
     print(scaled_xc)
-    barplot(scaled_xc, beside = TRUE, col = colors[1:nlines])
+    barplot(t(scaled_xc[,1:nlines]), beside = TRUE, col = colors[1:nlines], scales = list(x = list('',rot = 90)), xaxt = 'n')
     abline(h = 0)
     linetype <- c(1:nlines)
 
@@ -67,13 +70,12 @@ cca_wrapper <- function(dset1, dset2){
     title("CCA Task Coefficients")
 
     # add a legend
-    legend(1, 50, 1:nlines, cex=0.8, col=colors, lty=linetype)
-    axis(1, labels=dset1_names, at=1:length(dset1_names), las=2)
+    legend(1, 50, 1:nlines, cex = 0.8, col = colors, lty = linetype)
+    axis(1, labels = dset1_names, at = seq(2, 3*length(dset1_names)+1,3), las = 2)
     grid()
 
-
     ## V Coefficients Plot:
-    plotchar <- seq(18,18+nlines,1)
+    plotchar <- seq(18,18 + nlines,1)
 
     xrange <- range(1:length(dset2_names))
     yrange <- range(cca_res$ycoef[,1:nlines])
@@ -87,7 +89,8 @@ cca_wrapper <- function(dset1, dset2){
     scaled_yc <- cca_res$ycoef
 
     print(scaled_yc)
-    barplot(scaled_yc, beside = TRUE, col = colors[1:nlines])
+    barplot(t(scaled_yc[,1:nlines]), beside = TRUE, col = colors[1:nlines], scales = list(x = list('',rot = 90)), xaxt = 'n')
+    axis(1, labels = dset2_names, at = seq(2, 3*length(dset2_names) + 1,3), las = 2)
     abline(h = 0)
     #for (i in 1:nlines) {
     #  lines(1:nycoef, cca_res$ycoef[,i], type="b", lwd=1.5, lty=linetype[1], col=colors[i], pch=plotchar[i])

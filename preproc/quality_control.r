@@ -183,6 +183,18 @@ replace_bad_names <- function(data){
 
   # Dictionary of old names and better names
   dict <- list(
+    c('agn_mean_correct_latency_negative', 'agn_cor_lat_neg'),
+    c('agn_mean_correct_latency_positive', 'agn_cor_lat_pos'),
+    c('agn_total_omissions_negative', 'agn_tot_miss_neg'),
+    c('agn_total_omissions_positive', 'agn_tot_miss_pos'),
+    c('cgt_delay_aversion',  'cgt_delay_avers'),
+    c('cgt_deliberation_time', 'cgt_delib_time'),
+    c('cgt_quality_of_decision_making', 'cgt_decision_qual'),
+    c('cgt_overall_proportion_bet', 'cgt_prop_bet'),
+    c('cgt_risk_adjustment', 'cgt_risk_adjust'),
+    c('cgt_risk_taking', 'cgt_risk_take'),
+    c('prm_percent_correct', 'prm_perc_corr'),
+    c( 'swm_between_errors',  'swm_errors'),
     c('log10.k.', 'discount'),
     c('sj1a', 'adhd_teacher'),
     c('sj1b', 'adhd_parent'),
