@@ -149,7 +149,7 @@ import_all <- function(loc, subj_beg = 1, subj_end = 10){
   # Initialize principle data frame (data$raw) with subjects and their partition.
   data$raw <- data.frame(Subject = data$subj_list, set = rep( as.factor(c('train', 'test')), each = 198))
 
-  if (FALSE) {
+  if (TRUE) {
   ### ---------------------- ###
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
@@ -190,7 +190,7 @@ import_all <- function(loc, subj_beg = 1, subj_end = 10){
   #
   # Reading in more than one subjects complete FMRI data at a time would be
   # impossibly memory intensive
-  if (TRUE) {
+  if (FALSE) {
   visit <- 'BL'
   task  <- 'SST'
 
