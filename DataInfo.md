@@ -1,40 +1,4 @@
-# IMAGEN Misc. Info #
-
-## Table of Contents: ##
-* [Outline](#outline)
-* [Summary Stats for MID and SST Params](#summary stats for mid and sst params)
-* [Mean Shift and Normalize](#mean shift and normalize)
-* [Shuffle Test](#Shuffle Test)
-* [Further Data Subdivision](#further data subdivision)
-* [Missing Data: Age 14](#missing data age 14)
-* [Impute Features](#impute features)
-* [Clean Up Features](#clean up features)
-* [Misc. Correlations](#misc correlations)
-* [Canonical Correlations Analysis: Age 14](#canonical correlations analysis age 14)
-* [Principle Components Analysis](#principle components analysis)
-* [CCA Across Baseline and Follow Up](#cca across baseline and follow up)
-* [CCA from Age 14 Tasks to Age 18 Survey](#cca from age 14 tasks to age 18 survey)
-* [Gaussian Mixture Model](#gaussian mixture model)
-
-## Outline <a class="anchor" id="outline"></a>
-**The following should be determined in this file:**
-- What data exists, what subset is/ shoudl be used, and its raw state.
-- How much needs to be interpolated or removed, how, and what other QC needs to be done.
-    - How important statistics of the data are changed by these processes.
-- What analyses make the most sense, and what we roughly expect from them
-
-**It also includes...**
-- Attempted reproductions of others' work
-- Sanity checks on work done here and on the data
-
-**Actual steps in achieving these goals include:**
-- Stably inducting and partitioning the data
-- 
-
-# Misc. Info #
-
-## Description of the CANTAB Measures ##
-Participants completed five of the CANTAB tests. 
+# IMAGEN Data #
 
 **The Affective Go/No-go** task comprised of alternating blocks in which participants were presented with positively or negatively valenced target words embedded in a stream of neutral distracter words. Participants were instructed to respond to targets with a button press.  Measures included in the analyses were the total number of omissions to positive and negative targets, and the average response latency to positive and negative target words.
 - 'agn_mean_correct_latency_negative'  Measure is average RT to negative targets
@@ -43,7 +7,7 @@ Participants completed five of the CANTAB tests.
 - 'agn_total_omissions_positive' Measure is number of positively valenced target words that the participant failed to respond to 
 
 <br />
-In the **Pattern Recognition Memory** task participants were required to remember 12 abstract patterns; the percentage of patterns correctly recognized on a two alternative forced choice task completed immediately after encoding was included in the analyses. 
+In the **Pattern Recognition Memory** task participants were required to remember 12 abstract patterns; the percentage of patterns correctly recognized on a two alternative forced choice task completed immediately after encoding was included in the analyses.
 - 'prm_percent_correct'  Score reflects % correct
 
 <br />
@@ -52,7 +16,7 @@ In the **Pattern Recognition Memory** task participants were required to remembe
 - 'swm_strategy': For displays with more than 6 boxes, this measure represents the number of boxes in which the child initiates a new search within the same display (higher scores represent a less strategic approach).
 
 <br />
-**The Rapid Visual Information Processing** task comprised of a stream of digits presented at 1.67Hz and participants were required to monitor the stream for target sequence of three digits. We included a signal detection measure of sensitivity to the target sequence in the analyses. 
+**The Rapid Visual Information Processing** task comprised of a stream of digits presented at 1.67Hz and participants were required to monitor the stream for target sequence of three digits. We included a signal detection measure of sensitivity to the target sequence in the analyses.
 - 'rvp_a'  Score is a signal detection measure reflecting ability to discriminate a target sequence of 3 digits embedded in a rapidly presented stream.
 
 <br />
