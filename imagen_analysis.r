@@ -1,10 +1,10 @@
 # This script runs everything.
 
-source('./preproc/import_all.r')
-source('./preproc/quality_control.r')
-source('./preproc/fmri_routines.r')
-source('./preproc/impute_data.r')
-source('./analysis/analyze_data.r')
+source('./analysis/import_all.r')
+source('./analysis/quality_control.r')
+source('./analysis/fmri_routines.r')
+source('./analysis/impute_data.r')
+source('./plotting/plot_all.r')
 #source('./plotting/plot_results.r')
 data <- import_all('local')
 data <- gen_addnl_flds(data)
