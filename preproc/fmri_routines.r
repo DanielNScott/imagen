@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------ #
 #                      Subroutine for reading the fmri data                      #
 # ------------------------------------------------------------------------------ #
-import_fmri <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, data_dir) {
+read_fmri_data <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, data_dir) {
 
   # Set filename prefixes and suffixes
   task_pfx <- 'ss_'
@@ -454,7 +454,7 @@ fit_ag_lm <- function(regressors, movement, activations, index_list) {
 
 
 # ------------------------------------------------------------------------------ #
-#               A finite impulse response model, currently unused.               #
+#                          A finite impulse response model                       #
 # ------------------------------------------------------------------------------ #
 fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels, TR = 1, ...) {
 
@@ -514,6 +514,7 @@ fir <- function(onsets, durations, activations, n_scans, n_conds, n_voxels, TR =
 
 
 # ------------------------------------------------------------------------------ #
+#                     Creates a design matrix for an FIR analysis                #
 # ------------------------------------------------------------------------------ #
 fir_design <- function(onsets, n_scans, res = 0.1, hrf_len = 16) {
 
@@ -528,71 +529,5 @@ fir_design <- function(onsets, n_scans, res = 0.1, hrf_len = 16) {
   }
 
   return(fir_design)
-}
-# ------------------------------------------------------------------------------ #
-
-
-# ------------------------------------------------------------------------------ #
-# ------------------------------------------------------------------------------ #
-attach_fmri_results <- function(data) {
-  # Collect the data
-  ag_subjs     <- readRDS('/home/dan/projects/imagen/data/ag_subjs.rds')
-  ag_results   <- readRDS('/home/dan/projects/imagen/data/ag_results.rds')
-
-  # Name the connection strengths according to condition
-  cnames  <- colnames(ag_results$betas$connectivity_ST)
-
-  conn_st <- ag_results$betas$connectivity_ST
-  colnames(conn_st) <- paste(colnames(conn_st), 'st', sep = '_')
-
-  conn_sr <- ag_results$betas$connectivity_SR
-  colnames(conn_sr) <- paste(colnames(conn_sr), 'sr', sep = '_')
-
-  conn_ctrst <- conn_st - conn_sr
-  colnames(conn_ctrst) <- paste(cnames, 'st_sr', sep = '_')
-
-  # Attach AG results to the data frame
-  stop_betas <- data.frame('Subject' = ag_subjs, conn_st, conn_sr, conn_ctrst)
-  data$raw   <- merge(data$raw, stop_betas, by = 'Subject', all = TRUE)
-
-  # Agglomerate output from node level parallelism
-  subj_files <- list(c(1,25), c(26,50), c(51,75), c(76,100), c(101,125),
-                     c(126,150), c(151,175), c(176,200), c(201,250), c(251,300),
-                     c(301,350), c(351,396))
-
-  attach <- function(data, subjs, results, suffix, fn, merge_flag) {
-    ctrst <- t( sapply(results, fn))
-    colnames(ctrst) <- paste(colnames(ctrst), suffix, sep = '_')
-    if (merge_flag) {
-      ctrst_frame <- data.frame('Subject' = subjs, data.matrix(ctrst))
-      data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
-    } else {
-      row_indices <- match(subjs, data$raw[['Subject']])
-      data$raw[colnames(ctrst)][row_indices, ] <- ctrst
-    }
-    return(data$raw)
-  }
-
-  for (i in 1:length(subj_files)) {
-    beg <- subj_files[[i]][1]
-    end <- subj_files[[i]][2]
-    tmp_results <- readRDS(paste('/home/dan/projects/imagen/data/fmri/fmri_betas_', beg, '_', end, '.rds', sep = ''))
-    tmp_subjs   <- readRDS(paste('/home/dan/projects/imagen/data/fmri/fmri_subjs_', beg, '_', end, '.rds', sep = ''))
-
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_sr', function(x){ unlist(x[2,] - x[3,]) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_go', function(x){ unlist(x[2,] - x[1,]) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st'   , function(x){ unlist(x[2,]        ) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'sr'   , function(x){ unlist(x[3,]        ) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'go'   , function(x){ unlist(x[1,]        ) }, i == 1)
-  }
-
-  rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
-  titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
-              'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
-  std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
-
-  # Convert zeros to NAs
-  data$raw[ , std_fmri_feats][data$raw[,std_fmri_feats] == 0] <- NA
-  return(data)
 }
 # ------------------------------------------------------------------------------ #
