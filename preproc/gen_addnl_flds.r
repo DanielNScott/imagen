@@ -27,7 +27,6 @@ gen_addnl_flds <- function(data) {
   data$raw['binge'] <- data$raw[,'C.prev31'] / data$raw[,'bmi']
   data$names$ESPAD  <- c(data$names$ESPAD, 'binge')
 
-
   return(data)
 }
 

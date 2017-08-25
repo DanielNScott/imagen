@@ -71,7 +71,7 @@ cca_wrapper <- function(dset1, dset2){
 
     # add a legend
     legend(1, 50, 1:nlines, cex = 0.8, col = colors, lty = linetype)
-    axis(1, labels = dset1_names, at = seq(2, 3*length(dset1_names)+1,3), las = 2)
+    axis(1, labels = dset1_names, at = seq(2, (nlines+1)*length(dset1_names)+1, (nlines+1)), las = 2)
     grid()
 
     ## V Coefficients Plot:
@@ -90,7 +90,7 @@ cca_wrapper <- function(dset1, dset2){
 
     print(scaled_yc)
     barplot(t(scaled_yc[,1:nlines]), beside = TRUE, col = colors[1:nlines], scales = list(x = list('',rot = 90)), xaxt = 'n')
-    axis(1, labels = dset2_names, at = seq(2, 3*length(dset2_names) + 1,3), las = 2)
+    axis(1, labels = dset2_names, at = seq(2, (nlines+1)*length(dset2_names) + 1,(nlines+1)), las = 2)
     abline(h = 0)
     #for (i in 1:nlines) {
     #  lines(1:nycoef, cca_res$ycoef[,i], type="b", lwd=1.5, lty=linetype[1], col=colors[i], pch=plotchar[i])
