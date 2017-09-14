@@ -13,7 +13,7 @@ plot_cors <- function(data, features) {
   # This fn will put correlations on the panels of the matrix heatmap
   customPanel <- function(x, y, z, ...) {
     panel.levelplot(x, y, z, ...)
-    #panel.text(x, y, round(z, 1))
+    panel.text(x, y, round(z, 1))
   }
 
   # Actual Plot
@@ -41,6 +41,8 @@ density_plot <- function(data, names, title) {
 # Function to call all the plotting
 # ------------------------------------------------------------------------------ #
 analysis <- function(data) {
+  library(ggplot2)
+  library(reshape2)
 
   # First do diagnostics
   # --- some code will go here ---
@@ -49,16 +51,10 @@ analysis <- function(data) {
 
   # Training vs test set parameter recovery
   d <- melt( data$raw[c(data$names$sst, 'set')], id.vars = 'set')
-  ggplot(d, aes(x = value, fill = set)) +
+    ggplot(d, aes(x = value, fill = set)) +
     facet_wrap(~variable, scales = 'free') +
     geom_histogram(alpha = 0.2, position = 'identity') +
     ggtitle('SST Params by Train / Test Set')
-
-  # Task - FMRI CCA
-  feats_left <- c('mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go', data$names$CANTAB, setdiff(data$names$Age, 'bmi'))
-  std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
-  cmpl <- complete.cases(data$scores[c(feats_left, std_fmri_feats)])
-  cca_wrapper(data$scores[feats_left][cmpl,], data$scores[std_fmri_feats][cmpl,])
 
   ### Start plotting things that qualify as 'results'...
 
@@ -134,6 +130,12 @@ analysis <- function(data) {
   std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
   cmpl <- complete.cases(data$scores[c(feats_left, 'rSTN_st_go', 'rCaudate_st_go')])
   cca_wrapper(data$scores[feats_left][cmpl,], data$scores[c('rSTN_st_go', 'rCaudate_st_go')][cmpl,])
+
+  # Task - FMRI CCA
+  feats_left <- c('mid_rew', 'mid_high_rew', 'SSRTGo', 'SSRTStop', 'shift_go', data$names$CANTAB, setdiff(data$names$Age, 'bmi'))
+  std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
+  cmpl <- complete.cases(data$scores[c(feats_left, std_fmri_feats)])
+  cca_wrapper(data$scores[feats_left][cmpl,], data$scores[std_fmri_feats][cmpl,])
 
   #  act. by features as linear model
   fm <- as.formula(paste('rSTN_st_go', paste(feats_left, collapse = ' + '), sep = ' ~ ') )

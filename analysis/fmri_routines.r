@@ -171,7 +171,7 @@ read_fmri_data <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, 
 # ------------------------------------------------------------------------------ #
 #            Fits a robust general linear model to raw fMRI activations          #
 # ------------------------------------------------------------------------------ #
-fit_fmri_glm <- function(fmri_data, seperate) {
+fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
 
   # Required libraries
   library(parallel)
@@ -339,6 +339,23 @@ fit_fmri_glm <- function(fmri_data, seperate) {
       model  <- lmRob(x ~ design_mat)
       coef   <- model$coefficients[2:(n_regressors + 1)]
       p_vals <- summary(model)$coefficients[,4]
+      residual_var <- model$residuals %*% model$residuals / model$df.residual
+
+      ctrst_vec <- as.vector(c(1, -1, 0,0,0,0, 0,0,0,0, 0,0,0,0))
+      ctrst_var <- t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec
+      ctrst <- ctrst_vec %*% model$coefficients[2:15]
+      ctrst_t <- ctrst / sqrt(ctrst_var)
+      ctrst_p <- 2*pt(-abs(ctrst_t), df = model$df.residual)
+      coef <- c(coef, ctrst)
+      p_vals <- c(p_vals, ctrst_p)
+
+      ctrst_vec <- as.vector(c(0, 1, -1,0,0,0, 0,0,0,0, 0,0,0,0))
+      ctrst_var <- t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec
+      ctrst <- ctrst_vec %*% model$coefficients[2:15]
+      ctrst_t <- ctrst / sqrt(ctrst_var)
+      ctrst_p <- 2*pt(-abs(ctrst_t), df = model$df.residual)
+      coef <- c(coef, ctrst)
+      p_vals <- c(p_vals, ctrst_p)
 
       return(list(coef, p_vals))
     }
@@ -347,8 +364,7 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   # Perform regression and time it
   time <- system.time(
     coef_and_ps <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-    #coefficients <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-    #coefficients <- lapply(data.frame(fmri_data$acts), fit_cols)
+    #coef_and_ps <- lapply(data.frame(fmri_data$acts), fit_cols)
   )
 
   # Recovery test:
@@ -367,18 +383,25 @@ fit_fmri_glm <- function(fmri_data, seperate) {
   #saveRDS(coefficients, 'betas2.rds')
   #coef_and_ps <- readRDS('coef_and_ps.rds')
 
-  # Return coefficients to desired format, using only significant voxels
-  coefficients <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
+  ### Return coefficients to desired format, using only significant voxels ###
+  # Extraction from coef_and_ps, thresholding, and some set-up
+  coefficients <- data.frame(lapply(coef_and_ps, function(x){x[[1]]} ))
   p_values     <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
   sig_voxels   <- colSums(p_values[2:4,]) < 0.05
   roi_beg_end  <- c(1, cumsum(fmri_data$n_voxels_by_roi))
   sig_beg_end  <- integer(8)
-  for (i in 2:8) { sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]]) }
+
+  # Index the set of significant voxels by ROI
+  for (i in 2:8) {
+    sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]])
+  }
   sig_beg_end <- cumsum(sig_beg_end)
   sig_beg_end[sig_beg_end == 0] <- 1
+
+  # Take means over significant voxels to use as ROI activation series
   y <- matrix(0, 14, 7)
   for (i in 2:8) {
-    if (sig_beg_end[i-1] != sig_beg_end[i]) {
+    if (sig_beg_end[i - 1] != sig_beg_end[i]) {
        y[,i - 1] <- rowMeans(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]])
     }
   }

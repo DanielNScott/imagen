@@ -128,7 +128,7 @@ import_generic <- function(data_file, subj_ids){
 # ------------------------------------------------------------------------------ #
 #  Reads and processes fMRI data into a format useful for storing in primary DF  #
 # ------------------------------------------------------------------------------ #
-import_fmri <- function(data, base_dir, process_fmri = FALSE) {
+import_fmri <- function(data, base_dir, subj_beg, subj_end, loc = 'local', process_fmri = FALSE, seperate = FALSE, sig_voxels = NULL) {
 
   if (process_fmri) {
     visit <- 'BL'
@@ -146,29 +146,28 @@ import_fmri <- function(data, base_dir, process_fmri = FALSE) {
       movement_dir   <- paste(base_dir, '/BL_SST_move/', sep = '')
     }
 
-    ag_num   <- 1
-    ag_input <- list()
     fmri_betas <- list()
-    ag_subj  <- c()
+    fmri_sig   <- list()
+    subj       <- c()
+    subj_num   <- 1
 
     for (id in data$subj_list[subj_beg:subj_end,]) {
       tryCatch({
 
         # Retrieve and preprocess rois and trial data
-        fmri_data <- import_fmri(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
+        fmri_data <- read_fmri_data(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
 
         # Fit linear models to roi activations for std and AG analysis
-        sst_roi_response  <- fit_fmri_glm(fmri_data, seperate = FALSE)
-        #ag_trial_coef <- fit_fmri_glm(fmri_data, seperate = TRUE)
+        fmri_lm_fit  <- fit_fmri_glm(fmri_data, seperate = seperate, sig_voxels)
 
         # Set up data structure for use in AG analysis
-        subj_fldname <- paste('subj-', sprintf('%04i', ag_num), sep = '')
-        #ag_input[[subj_fldname]] <- ag_trial_coef$coef
-        fmri_betas[[subj_fldname]] <- sst_roi_response$coef
+        subj_fldname <- paste('subj-', sprintf('%04i', subj_num), sep = '')
+        fmri_betas[[subj_fldname]] <- fmri_lm_fit$coef
+        fmri_sig[[subj_fldname]] <- list(sig_voxels = fmri_lm_fit$sig_voxels, sig_beg_end = fmri_lm_fit$sig_beg_end)
 
         # Book keeping
-        ag_subj <- c(ag_subj, id)
-        ag_num  <- ag_num + 1
+        subj <- c(subj, id)
+        subj_num  <- subj_num + 1
 
         print(paste('fMRI preprocessing success for subj', id))
 
@@ -182,14 +181,24 @@ import_fmri <- function(data, base_dir, process_fmri = FALSE) {
       # Sometimes the error message 'e' is not very helpful so check warnings...
       if (exists('w')) print(w)
     }
-    saveRDS(fmri_betas, paste(base_dir, 'fmri_betas_', subj_beg, '_', subj_end, '.rds', sep = ''))
-    saveRDS(ag_subj , paste(base_dir, 'fmri_subjs_', subj_beg, '_', subj_end, '.rds', sep = ''))
-    }
+
+    # Prefix to create different filenames if recovering AG betas or not.
+    prfx <- ifelse(seperate, 'std', 'ag')
+
+    saveRDS(fmri_betas, paste(base_dir, prfx, '_fmri_betas_', subj_beg, '_', subj_end, '.rds', sep = ''))
+    saveRDS(subj      , paste(base_dir, prfx, '_fmri_subjs_', subj_beg, '_', subj_end, '.rds', sep = ''))
+    saveRDS(fmri_sig  , paste(base_dir, prfx, '_fmri_sig_'  , subj_beg, '_', subj_end, '.rds', sep = ''))
+
+    # Load and attach already-processed fmri data
+    data <- attach_fmri_results(data, base_dir)
+    return(data)
+
+  } else{
+
+    # Just load and attach already-processed fmri data
+    data <- attach_fmri_results(data, base_dir)
+    return(data)
   }
-  
-  # Just attach already-processed fmri data otherwise  
-  data <- attach_fmri_results(data)
-  return(data)
 }
 # ------------------------------------------------------------------------------ #
 
@@ -197,7 +206,7 @@ import_fmri <- function(data, base_dir, process_fmri = FALSE) {
 # ------------------------------------------------------------------------------ #
 #                Master routine for creating 'data' variable
 # ------------------------------------------------------------------------------ #
-import_all <- function(loc, subj_beg = 1, subj_end = 10){
+import_all <- function(loc, subj_beg = 1, subj_end = 10, fmri_only = FALSE){
 
   library('futile.logger')
   #source('fmri_routines.r')
@@ -218,7 +227,7 @@ import_all <- function(loc, subj_beg = 1, subj_end = 10){
   # Initialize principle data frame (data$raw) with subjects and their partition.
   data$raw <- data.frame(Subject = data$subj_list, set = rep( as.factor(c('train', 'test')), each = 198))
 
-  if (TRUE) {
+  if (!fmri_only) {
   ### ---------------------- ###
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
@@ -259,8 +268,8 @@ import_all <- function(loc, subj_beg = 1, subj_end = 10){
   #
   # Reading in more than one subjects complete FMRI data at a time would be
   # impossibly memory intensive
-  data <- import_fmri()
-
+  data <- import_fmri(data, base_dir, subj_beg, subj_end, loc, seperate = FALSE, process_fmri = TRUE)
+  #data <- import_fmri(data, base_dir, subj_beg, subj_end, loc, seperate = TRUE , process_fmri = FALSE, sig_voxels = sig_vox)
 
   #### DOES NOT EXIST YET ###
   # Get MID FMRI beta values
@@ -348,10 +357,10 @@ gen_addnl_flds <- function(data) {
 
 # ------------------------------------------------------------------------------ #
 # ------------------------------------------------------------------------------ #
-attach_fmri_results <- function(data) {
+attach_fmri_results <- function(data, base_dir) {
   # Collect the data
-  ag_subjs     <- readRDS('/home/dan/projects/imagen/data/ag_subjs.rds')
-  ag_results   <- readRDS('/home/dan/projects/imagen/data/ag_results.rds')
+  ag_subjs     <- readRDS(paste(base_dir, '/ag_subjs.rds'  , sep = ''))
+  ag_results   <- readRDS(paste(base_dir, '/ag_results.rds', sep = ''))
 
   # Name the connection strengths according to condition
   cnames  <- colnames(ag_results$betas$connectivity_ST)
@@ -390,8 +399,8 @@ attach_fmri_results <- function(data) {
   for (i in 1:length(subj_files)) {
     beg <- subj_files[[i]][1]
     end <- subj_files[[i]][2]
-    tmp_results <- readRDS(paste('/home/dan/projects/imagen/data/fmri/fmri_betas_', beg, '_', end, '.rds', sep = ''))
-    tmp_subjs   <- readRDS(paste('/home/dan/projects/imagen/data/fmri/fmri_subjs_', beg, '_', end, '.rds', sep = ''))
+    tmp_results <- readRDS(paste(base_dir, '/fmri/fmri_betas_', beg, '_', end, '.rds', sep = ''))
+    tmp_subjs   <- readRDS(paste(base_dir, '/fmri/fmri_subjs_', beg, '_', end, '.rds', sep = ''))
 
     data$raw <- attach(data, tmp_subjs, tmp_results, 'st_sr', function(x){ unlist(x[2,] - x[3,]) }, i == 1)
     data$raw <- attach(data, tmp_subjs, tmp_results, 'st_go', function(x){ unlist(x[2,] - x[1,]) }, i == 1)
@@ -400,6 +409,7 @@ attach_fmri_results <- function(data) {
     data$raw <- attach(data, tmp_subjs, tmp_results, 'go'   , function(x){ unlist(x[1,]        ) }, i == 1)
   }
 
+  sfx <- c('_go', '_st', '_sr', '_st_go', '_st_sr')
   rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
   titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
               'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
