@@ -178,8 +178,8 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   library(robust)
   library(fmri)
 
-  # Number of scans in this series -- varies by individual.
-  n_scans <- length(fmri_data$acts[!is.na(fmri_data$acts[,1]),1])
+  # Number of scans - varies by individual - is num rows in activation matrix.
+  n_scans <- length(fmri_data$acts[!is.na(fmri_data$acts[,1]), 1])
 
   # In case of ancestral graph analysis, need book keeping vars for
   # additional by-trial regressors and to overwrite some things.
@@ -303,12 +303,14 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
     design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
     colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
     regressor_names <- colnames(design_mat)
+    n_regs <- n_conds + 2
   }
 
   # Add the motion parameters to the set of regressors
   design_mat <- cbind(design_mat, as.matrix(fmri_data$movement))
   colnames(design_mat) <- c(regressor_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   regressor_names <- colnames(design_mat)
+  n_regs <- n_regs + 6
 
   # Setup for regressions...
   n_voxels     <- dim(fmri_data$acts)[2]
@@ -337,7 +339,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
 
     fit_cols <- function(x) {
       model  <- lmRob(x ~ design_mat)
-      coef   <- model$coefficients[2:(n_regressors + 1)]
+      coef   <- model$coefficients[1:(n_regressors + 1)]
       p_vals <- summary(model)$coefficients[,4]
       residual_var <- model$residuals %*% model$residuals / model$df.residual
 
@@ -356,6 +358,10 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
       ctrst_p <- 2*pt(-abs(ctrst_t), df = model$df.residual)
       coef <- c(coef, ctrst)
       p_vals <- c(p_vals, ctrst_p)
+
+      #ctrst_names  <- c('Go-Stop', 'Stop-StopFail')
+      #rownames(coef) <- c('Int.', colnames(design_mat), ctrst_names)
+      #rownames(p_vals)     <- c('Int.', colnames(design_mat), ctrst_names)
 
       return(list(coef, p_vals))
     }
@@ -387,39 +393,72 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   # Extraction from coef_and_ps, thresholding, and some set-up
   coefficients <- data.frame(lapply(coef_and_ps, function(x){x[[1]]} ))
   p_values     <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
-  sig_voxels   <- colSums(p_values[2:4,]) < 0.05
-  roi_beg_end  <- c(1, cumsum(fmri_data$n_voxels_by_roi))
-  sig_beg_end  <- integer(8)
+  ctrst_names  <- c('Go-Stop', 'Stop-StopFail')
+  cois <- c('GO_SUCCESS', 'STOP_SUCCESS', 'STOP_FAILURE', 'Go-Stop', 'Stop-StopFail')
 
-  # Index the set of significant voxels by ROI
-  for (i in 2:8) {
-    sig_beg_end[i] <- sum(sig_voxels[roi_beg_end[i - 1]:roi_beg_end[i]])
-  }
-  sig_beg_end <- cumsum(sig_beg_end)
-  sig_beg_end[sig_beg_end == 0] <- 1
+  # if (!seperate) {
+  rownames(coefficients) <- c('Int.', colnames(design_mat), ctrst_names)
+  rownames(p_values)     <- c('Int.', colnames(design_mat), ctrst_names)
 
-  # Take means over significant voxels to use as ROI activation series
-  y <- matrix(0, 14, 7)
-  for (i in 2:8) {
-    if (sig_beg_end[i - 1] != sig_beg_end[i]) {
-       y[,i - 1] <- rowMeans(coefficients[ 2:15, sig_beg_end[i - 1]:sig_beg_end[i]])
+  n_rois   <- 7
+  n_ctrsts <- length(ctrst_names)
+  n_cois   <- length(cois)
+
+  roi_beg_end  <- c(0, cumsum(fmri_data$n_voxels_by_roi))
+  sig_beg_end  <- matrix(0, n_cois, n_rois + 1)
+  mean_betas   <- matrix(0, n_cois, n_rois    )
+  dists        <- list()
+
+  #save(list = ls(), file = 'fmri_checkpoint.rds')
+  #browser()
+  for (j in 1:n_cois) {
+    sig_voxels <- p_values[cois, ][j, ] < 0.05
+
+    # Index the set of significant voxels by ROI
+    for (i in 1:n_rois) {
+      vox_first <- roi_beg_end[i] + 1
+      vox_last  <- roi_beg_end[i+1]
+      sig_beg_end[j, i + 1] <- sum(sig_voxels[vox_first:vox_last])
+    }
+
+    # Go from # of significant per roi to a set of indexes
+    sig_beg_end[j, ] <- cumsum(sig_beg_end[j,])
+
+    # Take means over significant voxels to use as ROI activation series
+    for (i in 1:n_rois) {
+      if (sig_beg_end[j,i] != sig_beg_end[j,i + 1]) {
+         vox_first <- sig_beg_end[j,i] + 1
+         vox_last  <- sig_beg_end[j,i+1]
+
+         sig_voxel_avg <- data.frame(rowMeans(as.matrix(fmri_data$acts[, sig_voxels][,vox_first:vox_last])))
+         new_res  <- mclapply(sig_voxel_avg, fit_cols, mc.cores = cores[1], mc.silent = TRUE)
+         new_coef <- as.matrix(new_res[[1]][[1]])
+         rownames(new_coef) <- rownames(coefficients)
+
+         mean_betas[j,i] <- new_coef[cois,][j]
+         sig_betas <- coefficients[cois,][j, sig_voxels][vox_first:vox_last]
+
+         dists[[paste(fmri_data$rois[i], cois[j], sep='-')]] <- as.double(sig_betas)
+      }
     }
   }
-  coefficients <- y
-  coefficients <- coefficients[1:dim(design_mat)[2],]
-  rownames(coefficients) <- colnames(design_mat)
-  colnames(coefficients) <- fmri_data$rois
-  coefficients <- data.frame(coefficients)
+  #browser()
+
+  #coefficients <- coefficients[1:dim(design_mat)[2],]
+  colnames(mean_betas) <- fmri_data$rois
+  mean_betas <- data.frame(mean_betas)
 
   # Return names...
-  if (!seperate) { rownames(coefficients) <- colnames(design_mat)}
+  if (!seperate) {
+    rownames(mean_betas) <- cois
+  }
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')
   #+ geom_point(aes(1:444,melt(fmri_data$acts[,503])), col = 'blue')
 
   # Save the linear model, list of conds removed,
-  lm_list <- list(coef = coefficients, bad_cond = bad_cond, design = design_mat,
+  lm_list <- list(coef = mean_betas, dists = dists, bad_cond = bad_cond, design = design_mat,
                   sig_voxels = sig_voxels, sig_beg_end = sig_beg_end)
   return(lm_list)
 }

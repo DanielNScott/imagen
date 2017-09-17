@@ -183,7 +183,7 @@ import_fmri <- function(data, base_dir, subj_beg, subj_end, loc = 'local', proce
     }
 
     # Prefix to create different filenames if recovering AG betas or not.
-    prfx <- ifelse(seperate, 'std', 'ag')
+    prfx <- ifelse(seperate, 'ag', 'std')
 
     saveRDS(fmri_betas, paste(base_dir, prfx, '_fmri_betas_', subj_beg, '_', subj_end, '.rds', sep = ''))
     saveRDS(subj      , paste(base_dir, prfx, '_fmri_subjs_', subj_beg, '_', subj_end, '.rds', sep = ''))
@@ -191,12 +191,13 @@ import_fmri <- function(data, base_dir, subj_beg, subj_end, loc = 'local', proce
 
     # Load and attach already-processed fmri data
     data <- attach_fmri_results(data, base_dir)
+    #data <- attach_ag_results(data, base_dir)
     return(data)
 
   } else{
-
     # Just load and attach already-processed fmri data
     data <- attach_fmri_results(data, base_dir)
+    #data <- attach_ag_results(data, base_dir)
     return(data)
   }
 }
@@ -206,7 +207,7 @@ import_fmri <- function(data, base_dir, subj_beg, subj_end, loc = 'local', proce
 # ------------------------------------------------------------------------------ #
 #                Master routine for creating 'data' variable
 # ------------------------------------------------------------------------------ #
-import_all <- function(loc, subj_beg = 1, subj_end = 10, fmri_only = FALSE){
+import_all <- function(loc, subj_beg = 1, subj_end = 10, fmri_only = FALSE, process_fmri = TRUE){
 
   library('futile.logger')
   #source('fmri_routines.r')
@@ -268,7 +269,7 @@ import_all <- function(loc, subj_beg = 1, subj_end = 10, fmri_only = FALSE){
   #
   # Reading in more than one subjects complete FMRI data at a time would be
   # impossibly memory intensive
-  data <- import_fmri(data, base_dir, subj_beg, subj_end, loc, seperate = FALSE, process_fmri = TRUE)
+  data <- import_fmri(data, base_dir, subj_beg, subj_end, loc, seperate = FALSE, process_fmri = process_fmri)
   #data <- import_fmri(data, base_dir, subj_beg, subj_end, loc, seperate = TRUE , process_fmri = FALSE, sig_voxels = sig_vox)
 
   #### DOES NOT EXIST YET ###
@@ -358,6 +359,55 @@ gen_addnl_flds <- function(data) {
 # ------------------------------------------------------------------------------ #
 # ------------------------------------------------------------------------------ #
 attach_fmri_results <- function(data, base_dir) {
+
+  # Agglomerate output from node level parallelism
+  #subj_files <- list(c(1,25), c(26,50), c(51,75), c(76,100), c(101,125),
+  #                   c(126,150), c(151,175), c(176,200), c(201,250), c(251,300),
+  #                   c(301,350), c(351,396))
+
+  subj_files <- list(c(1,50), c(51,100), c(101,150), c(151,200), #c(201,250),
+                     c(251,300), c(301,350), c(351,396))
+
+  attach <- function(data, subjs, results, suffix, fn, merge_flag) {
+    ctrst <- t( sapply(results, fn))
+    colnames(ctrst) <- paste(colnames(ctrst), suffix, sep = '_')
+    if (merge_flag) {
+      ctrst_frame <- data.frame('Subject' = subjs, data.matrix(ctrst))
+      data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
+    } else {
+      row_indices <- match(subjs, data$raw[['Subject']])
+      data$raw[colnames(ctrst)][row_indices, ] <- ctrst
+    }
+    return(data$raw)
+  }
+
+  for (i in 1:length(subj_files)) {
+    beg <- subj_files[[i]][1]
+    end <- subj_files[[i]][2]
+    tmp_results <- readRDS(paste(base_dir, '/fmri/std_fmri_betas_', beg, '_', end, '.rds', sep = ''))
+    tmp_subjs   <- readRDS(paste(base_dir, '/fmri/std_fmri_subjs_', beg, '_', end, '.rds', sep = ''))
+
+    data$raw <- attach(data, tmp_subjs, tmp_results, 'go'   , function(x){ unlist(x[1,]) }, i == 1)
+    data$raw <- attach(data, tmp_subjs, tmp_results, 'st'   , function(x){ unlist(x[2,]) }, i == 1)
+    data$raw <- attach(data, tmp_subjs, tmp_results, 'sr'   , function(x){ unlist(x[3,]) }, i == 1)
+    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_go', function(x){ unlist(x[4,]) }, i == 1)
+    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_sr', function(x){ unlist(x[5,]) }, i == 1)
+  }
+
+  sfx <- c('_go', '_st', '_sr', '_st_go', '_st_sr')
+  rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
+  titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
+              'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
+  std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
+
+  # Convert zeros to NAs
+  data$raw[ , std_fmri_feats][data$raw[,std_fmri_feats] == 0] <- NA
+  return(data)
+}
+# ------------------------------------------------------------------------------ #
+
+
+attach_ag_results <- function(data, base_dir){
   # Collect the data
   ag_subjs     <- readRDS(paste(base_dir, '/ag_subjs.rds'  , sep = ''))
   ag_results   <- readRDS(paste(base_dir, '/ag_results.rds', sep = ''))
@@ -378,45 +428,6 @@ attach_fmri_results <- function(data, base_dir) {
   stop_betas <- data.frame('Subject' = ag_subjs, conn_st, conn_sr, conn_ctrst)
   data$raw   <- merge(data$raw, stop_betas, by = 'Subject', all = TRUE)
 
-  # Agglomerate output from node level parallelism
-  subj_files <- list(c(1,25), c(26,50), c(51,75), c(76,100), c(101,125),
-                     c(126,150), c(151,175), c(176,200), c(201,250), c(251,300),
-                     c(301,350), c(351,396))
-
-  attach <- function(data, subjs, results, suffix, fn, merge_flag) {
-    ctrst <- t( sapply(results, fn))
-    colnames(ctrst) <- paste(colnames(ctrst), suffix, sep = '_')
-    if (merge_flag) {
-      ctrst_frame <- data.frame('Subject' = subjs, data.matrix(ctrst))
-      data$raw   <- merge(data$raw, ctrst_frame, by = 'Subject', all = TRUE)
-    } else {
-      row_indices <- match(subjs, data$raw[['Subject']])
-      data$raw[colnames(ctrst)][row_indices, ] <- ctrst
-    }
-    return(data$raw)
-  }
-
-  for (i in 1:length(subj_files)) {
-    beg <- subj_files[[i]][1]
-    end <- subj_files[[i]][2]
-    tmp_results <- readRDS(paste(base_dir, '/fmri/fmri_betas_', beg, '_', end, '.rds', sep = ''))
-    tmp_subjs   <- readRDS(paste(base_dir, '/fmri/fmri_subjs_', beg, '_', end, '.rds', sep = ''))
-
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_sr', function(x){ unlist(x[2,] - x[3,]) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st_go', function(x){ unlist(x[2,] - x[1,]) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'st'   , function(x){ unlist(x[2,]        ) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'sr'   , function(x){ unlist(x[3,]        ) }, i == 1)
-    data$raw <- attach(data, tmp_subjs, tmp_results, 'go'   , function(x){ unlist(x[1,]        ) }, i == 1)
-  }
-
-  sfx <- c('_go', '_st', '_sr', '_st_go', '_st_sr')
-  rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
-  titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
-              'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
-  std_fmri_feats <- as.vector(outer(rois, sfx, function(x,y) {paste(x,y, sep = '')}))
-
-  # Convert zeros to NAs
-  data$raw[ , std_fmri_feats][data$raw[,std_fmri_feats] == 0] <- NA
   return(data)
 }
-# ------------------------------------------------------------------------------ #
+

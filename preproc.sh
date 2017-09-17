@@ -12,5 +12,5 @@
 ###########################
 
 # Run the batch job.
-Rscript -e "source('./preproc/import_all.r'); source('./preproc/fmri_routines.r'); import_all('clust',${1},${2})" 1>preproc_${1}_${2}.out 2>>preproc_${1}_${2}.err
+Rscript -e "source('./analysis/import_all.r'); source('./analysis/fmri_routines.r'); import_all('clust',${1},${2})" 1>preproc_${1}_${2}.out 2>>preproc_${1}_${2}.err
 
