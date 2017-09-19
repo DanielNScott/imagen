@@ -171,15 +171,17 @@ read_fmri_data <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, 
 # ------------------------------------------------------------------------------ #
 #            Fits a robust general linear model to raw fMRI activations          #
 # ------------------------------------------------------------------------------ #
-fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
+fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE) {
 
   # Required libraries
   library(parallel)
-  library(robust)
+  #library(robust)
+  library(robustarima)
   library(fmri)
 
-  # Number of scans - varies by individual - is num rows in activation matrix.
-  n_scans <- length(fmri_data$acts[!is.na(fmri_data$acts[,1]), 1])
+  # Number of scans (varies by individual) is num of non-na rows in activation matrix.
+  n_scans  <- length(fmri_data$acts[!is.na(fmri_data$acts[,1]), 1])
+  n_voxels <- dim(fmri_data$acts)[2]
 
   # In case of ancestral graph analysis, need book keeping vars for
   # additional by-trial regressors and to overwrite some things.
@@ -203,27 +205,27 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
     trial_names   <- c()
 
   } else {
-    # Task conditions
-    cond_nums  <- as.integer(unique(fmri_data$task_key))
+    # Extract numbers and names for task conditions, and their outcomes
+    cond_nums  <- as.integer( unique( fmri_data$task_key) )
     cond_names <- names(fmri_data$task_key)
     n_conds    <- length(cond_nums)
     outcomes   <- fmri_data$task_outcome
 
-    # Array for events convolved w/ HRF
+    # Initialize the array for events convolved w/ HRF
     conv_regs <- array(dim = c(n_scans, n_conds))
 
-    # FIR
+    # FIR variables (but currently the FIR model doesn't work)
     #fir_res <- 1
     #fir_dmat  <- matrix(nrow = n_scans*(1/fir_res), ncol = 0)
   }
 
-  # Some conditions do not occur - they will be removed
+  # Some conditions do not occur and will be removed
   bad_cond  <- c()
 
-  # Fill the conv_regressors array for each condition
+  # Convolve HRF w/ task indicators to create regressors for each condition
   for (cond in cond_nums) {
 
-    # Masks for getting trial times
+    # Want to extract only trial in current condition
     cond_msk <- outcomes %in% cond_names[cond]
 
     # If this condition doesn't occur, skip it.
@@ -233,7 +235,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
         next
     }
 
-    # For some reason fmri.stimulus can't handle the zero.
+    # For some reason fmri.stimulus can't handle an initial-zero onset time.
     # Only one of thousands of pts, so just 'fix' it.
     if (fmri_data$task_times[cond_msk][1] == 0) {
         fmri_data$task_times[cond_msk][1] <- 500
@@ -245,7 +247,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
     onsets    <- as.vector(na.omit(onsets/1000/2.2))
     durations <- double(length(onsets))
 
-    # Get convolved regressor for condition if 'seperate' is flagged
+    # If we're doing the AG-analysis we need to consider each trial as it's own condition.
     if (seperate) {
       # Function to apply fmri.stimulus to each condition onset
       conv_hrf <- function(x) { fmri.stimulus(scans = n_scans, onsets = x, duration = 0) }
@@ -271,7 +273,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
     }
   }
 
-  # Assign appropriate names: Need to list-ify and un-listify for if-else.
+  # Assign appropriate names to the columns in the conv_regs matrix.
   regressor_names <- ifelse(seperate, list(trial_names), list(cond_names))[[1]]
   colnames(conv_regs) <- regressor_names
 
@@ -283,85 +285,129 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   #    For use:
   #fir_hrf_est <- corpcor::pseudoinverse( t(fir_dmat) %*% fir_dmat) %*% t(fir_dmat) %*% fmri_data$acts
 
-  # Throw away bad conditions
-  cond_nums  <- setdiff(cond_nums, bad_cond)
-  cond_names <- cond_names[cond_nums]
-  if (seperate) {index_list <- index_list[cond_nums]}
+  # Throw away any bad conditions
+  cond_nums    <- setdiff(cond_nums, bad_cond)
+  cond_names   <- cond_names[cond_nums]
+  n_good_conds <- length(cond_nums)
 
+  # Build the design matrices for use with the linear models.
   if (seperate) {
+    # De-index bad conditions
+    index_list <- index_list[cond_nums]
+
     # Get design matrix but dith the linear drift term
     design_mat <- fmri.design(conv_regs, order = 0)
     design_mat <- design_mat[,1:(dim(design_mat)[2] - 1)]
 
   } else {
-    # Create design matrix by adding 2nd deg drift and remove any bad conditions from conv_regs
-    design_mat <- fmri.design(conv_regs[, cond_nums], order = 2)
+    # Create design matrix from conv_regs, less any bad conditions, with 2nd order drift regressor.
+    #design_mat <- fmri.design(conv_regs[, cond_nums], order = 2)
+    design_mat <- conv_regs[, cond_nums]
     regressor_names <- regressor_names[cond_nums]
 
-    # Remove the unnecessary intercept column which is redundant intercept est. in lm()
-    n_good_conds <- dim(design_mat)[2] - 3
-    design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
-    colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
-    regressor_names <- colnames(design_mat)
-    n_regs <- n_conds + 2
+    # Remove the unnecessary intercept column (it's automatically fit in lm() )
+    #n_good_conds <- dim(design_mat)[2] - 3
+    #design_mat  <- design_mat[, c(1:n_good_conds, (n_good_conds + 2):(n_good_conds + 3)) ]
+    #colnames(design_mat) <- c(regressor_names, 'Linear Drift', 'Sq. Drift')
+    #regressor_names <- colnames(design_mat)
+    #n_regs <- n_good_conds + 2
   }
 
   # Add the motion parameters to the set of regressors
   design_mat <- cbind(design_mat, as.matrix(fmri_data$movement))
   colnames(design_mat) <- c(regressor_names, 'Motion_x', 'Motion_y', 'Motion_z', 'Motion_pitch', 'Motion_yaw', 'Motion_roll')
   regressor_names <- colnames(design_mat)
-  n_regs <- n_regs + 6
+  n_regs <- dim(design_mat)[2]
 
-  # Setup for regressions...
-  n_voxels     <- dim(fmri_data$acts)[2]
-  n_regressors <- dim(design_mat)[2]
+  ctrst_names  <- c('Go-Stop', 'Stop-StopFail')
+  cois <- c('GO_SUCCESS', 'STOP_SUCCESS', 'STOP_FAILURE', 'Go-Stop', 'Stop-StopFail')
 
-  # Indicate pool for core-level SIMD parallelism:
-  # Note: Using makeClust() here will break this on some clusters which do not let R
-  #       use socket based core communication. mclapply defaults to fork-based dispatching.
+  ###
+  # Find pool for core-level SIMD parallelism.
+  # - Using makeClust() here will break this on some clusters w/o socket based core communication
+  # - mclapply defaults to fork-based dispatching.
+  ###
   cores <- detectCores()
+  cores <- ifelse(core_par, min(detectCores(), n_voxels), 4)
   flog.info('Cores found: %d', cores[1])
-  cores <- min(detectCores(), n_voxels)
   flog.info('Using %d of them (for %d rois/voxels).', cores[1], n_voxels)
 
-  # For AG, need user defined function,
-  # for std analysis need robust linear model
+  ## If we want to test with just a few of the ROIs for time-sake:
+  #fmri_data$rois <- c('rPreSMA','rIFG','rSTN')
+  #fmri_data$acts <- fmri_data$acts[,c(1:76,730:1231,1231:1237)]
+  #fmri_data$rois <- c('rPreSMA', 'rSTN')
+  #fmri_data$acts <- fmri_data$acts[,c(1:76,1231:1237)]
+  #fmri_data$n_voxels_by_roi <- fmri_data$n_voxels_by_roi[fmri_data$rois]
+
+  design_mat <<- design_mat
+
+  # Definitions for the regressions...
   if (seperate) {
+    # For AG, need user defined function,
     coefficients <- matrix(NA, total_trials, n_voxels )
     colnames(coefficients) <- colnames(fmri_data$acts)
 
-    fit_cols <- function(x) {
-      return(fit_ag_lm(conv_regs, as.matrix(fmri_data$movement), x, index_list))
+    # The function to fit an activation time-series
+    fit_acts <- function(x) {
+      movement <- as.matrix(fmri_data$movement)
+      return( fit_ag_lm(conv_regs, movement, x, index_list) )
     }
 
   } else {
-    coefficients <- matrix(NA, n_regressors, n_voxels )
+    # for Standard analysis need robust linear model
+    coefficients <- matrix(NA, n_regs, n_voxels )
 
-    fit_cols <- function(x) {
-      model  <- lmRob(x ~ design_mat)
-      coef   <- model$coefficients[1:(n_regressors + 1)]
-      p_vals <- summary(model)$coefficients[,4]
-      residual_var <- model$residuals %*% model$residuals / model$df.residual
+    # The function to fit an activation time-series
+    fit_acts <- function(x) {
+      # Standard linear regression, but with AR(1) errors
+      # model <- lm(x ~ design_mat)
+      # model <- orcutt::cochrane.orcutt(model)
 
-      ctrst_vec <- as.vector(c(1, -1, 0,0,0,0, 0,0,0,0, 0,0,0,0))
-      ctrst_var <- t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec
-      ctrst <- ctrst_vec %*% model$coefficients[2:15]
-      ctrst_t <- ctrst / sqrt(ctrst_var)
-      ctrst_p <- 2*pt(-abs(ctrst_t), df = model$df.residual)
-      coef <- c(coef, ctrst)
-      p_vals <- c(p_vals, ctrst_p)
+      # Robust linear regression
+      # model  <- lmRob(x ~ design_mat)
 
-      ctrst_vec <- as.vector(c(0, 1, -1,0,0,0, 0,0,0,0, 0,0,0,0))
-      ctrst_var <- t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec
-      ctrst <- ctrst_vec %*% model$coefficients[2:15]
-      ctrst_t <- ctrst / sqrt(ctrst_var)
-      ctrst_p <- 2*pt(-abs(ctrst_t), df = model$df.residual)
-      coef <- c(coef, ctrst)
-      p_vals <- c(p_vals, ctrst_p)
+      # Extract coefficients and p-values
+      #coef   <- model$coefficients
+      #p_vals <- summary(model)$coefficients[,4]
 
-      #ctrst_names  <- c('Go-Stop', 'Stop-StopFail')
-      #rownames(coef) <- c('Int.', colnames(design_mat), ctrst_names)
-      #rownames(p_vals)     <- c('Int.', colnames(design_mat), ctrst_names)
+      ###
+      # Robust linear regression with ARIMA errors
+      # arima.rob has some bug requiring global assignment of it's args...
+      #
+      response   <<- as.matrix(x)
+      model      <- arima.rob(response ~ design_mat, p = 1)
+
+      # Extract coefficients and p-values
+      coef   <- model$regcoef
+      p_vals <- summary(model)$reg.coef[,4]
+      ###
+
+      # Compute contrast vector and it's p-value, assuming white residuals
+      # (which is not quite right, but empirically it is conservative enough to multiply by 2)
+
+      # model$df.residual should be n_obs - rank(design_mat)
+      residuals <- cbind(rep.int(1, 444), design_mat) %*% as.matrix(model$regcoef)
+      residual_df  <- 430
+      residual_var <- t(residuals) %*% residuals / residual_df
+
+      ctrst_vec <- as.vector(c(1, -1, 0,0,0,0,0,  0,0,0,0,0))
+      ctrst_var <- 1/sum(abs(ctrst_vec)) * t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec * residual_var
+      ctrst     <- ctrst_vec %*% model$regcoef[2:13]
+      ctrst_t   <- ctrst / sqrt(ctrst_var)
+      ctrst_p   <- 2*( 2*pt(-abs(ctrst_t), df = residual_df) )
+      coef      <- c(coef, ctrst)
+      p_vals    <- c(p_vals, ctrst_p)
+
+      ctrst_vec <- as.vector(c(0, 1,-1, 0,0,0,0,0,  0,0,0,0))
+      ctrst_var <- 1/sum(abs(ctrst_vec)) * t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec * residual_var
+      ctrst     <- ctrst_vec %*% model$regcoef[2:13]
+      ctrst_t   <- ctrst / sqrt(ctrst_var)
+      ctrst_p   <- 2*( 2*pt(-abs(ctrst_t), df = residual_df) )
+      coef      <- c(coef, ctrst)
+      p_vals    <- c(p_vals, ctrst_p)
+
+      names(coef)   <- c('Int.', colnames(design_mat), ctrst_names)
+      names(p_vals) <- c('Int.', colnames(design_mat), ctrst_names)
 
       return(list(coef, p_vals))
     }
@@ -369,8 +415,8 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
 
   # Perform regression and time it
   time <- system.time(
-    coef_and_ps <- mclapply(data.frame(fmri_data$acts), fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-    #coef_and_ps <- lapply(data.frame(fmri_data$acts), fit_cols)
+    coef_and_ps <- mclapply(data.frame(fmri_data$acts), fit_acts, mc.cores = cores[1], mc.silent = TRUE)
+    #coef_and_ps <- lapply(data.frame(fmri_data$acts), fit_acts)
   )
 
   # Recovery test:
@@ -386,6 +432,8 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   # Report time required for regression
   flog.info('Computation time for voxel betas:')
   print(time)
+
+  # Checkpoint for debugging with long computations
   #saveRDS(coefficients, 'betas2.rds')
   #coef_and_ps <- readRDS('coef_and_ps.rds')
 
@@ -393,53 +441,48 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   # Extraction from coef_and_ps, thresholding, and some set-up
   coefficients <- data.frame(lapply(coef_and_ps, function(x){x[[1]]} ))
   p_values     <- data.frame(lapply(coef_and_ps, function(x){x[[2]]} ))
-  ctrst_names  <- c('Go-Stop', 'Stop-StopFail')
-  cois <- c('GO_SUCCESS', 'STOP_SUCCESS', 'STOP_FAILURE', 'Go-Stop', 'Stop-StopFail')
 
-  # if (!seperate) {
+  # if (seperate) { do something else here }
   rownames(coefficients) <- c('Int.', colnames(design_mat), ctrst_names)
   rownames(p_values)     <- c('Int.', colnames(design_mat), ctrst_names)
 
-  n_rois   <- 7
+  n_rois   <- length(fmri_data$rois)
   n_ctrsts <- length(ctrst_names)
   n_cois   <- length(cois)
 
   roi_beg_end  <- c(0, cumsum(fmri_data$n_voxels_by_roi))
   sig_beg_end  <- matrix(0, n_cois, n_rois + 1)
   mean_betas   <- matrix(0, n_cois, n_rois    )
-  dists        <- list()
+  beta_dists   <- list()
+  pval_dists   <- list()
 
   #save(list = ls(), file = 'fmri_checkpoint.rds')
   #browser()
   for (j in 1:n_cois) {
-    sig_voxels <- p_values[cois, ][j, ] < 0.05
 
+    # Get roi-corrected significant voxels
     # Index the set of significant voxels by ROI
     for (i in 1:n_rois) {
-      vox_first <- roi_beg_end[i] + 1
-      vox_last  <- roi_beg_end[i+1]
-      sig_beg_end[j, i + 1] <- sum(sig_voxels[vox_first:vox_last])
-    }
+      vox_first <- roi_beg_end[[i]] + 1
+      vox_last  <- roi_beg_end[[i + 1]]
 
-    # Go from # of significant per roi to a set of indexes
-    sig_beg_end[j, ] <- cumsum(sig_beg_end[j,])
-
-    # Take means over significant voxels to use as ROI activation series
-    for (i in 1:n_rois) {
-      if (sig_beg_end[j,i] != sig_beg_end[j,i + 1]) {
-         vox_first <- sig_beg_end[j,i] + 1
-         vox_last  <- sig_beg_end[j,i+1]
-
-         sig_voxel_avg <- data.frame(rowMeans(as.matrix(fmri_data$acts[, sig_voxels][,vox_first:vox_last])))
-         new_res  <- mclapply(sig_voxel_avg, fit_cols, mc.cores = cores[1], mc.silent = TRUE)
-         new_coef <- as.matrix(new_res[[1]][[1]])
-         rownames(new_coef) <- rownames(coefficients)
-
-         mean_betas[j,i] <- new_coef[cois,][j]
-         sig_betas <- coefficients[cois,][j, sig_voxels][vox_first:vox_last]
-
-         dists[[paste(fmri_data$rois[i], cois[j], sep='-')]] <- as.double(sig_betas)
+      sig_voxels   <- 0
+      factor       <- 0
+      # Accept increasing amounts of error
+      cur_n_vox <- fmri_data$n_voxels_by_roi[[i]]
+      while ((sum(sig_voxels) < max(cur_n_vox/100, 5)) & (factor <= 0.05)) {
+        sig_voxels <- p_values[cois,vox_first:vox_last][j,] < (0.0001/cur_n_vox + factor)
+        factor <- factor + 0.0005
       }
+      #sig_beg_end[j, i + 1] <- sum(sig_voxels[vox_first:vox_last])
+
+      #
+      sig_betas  <- coefficients[cois, colnames(sig_voxels)][j, sig_voxels]
+      pval_betas <- p_values[cois, colnames(sig_voxels)][j, sig_voxels]
+      mean_betas[j,i] <- median( as.matrix(sig_betas) )
+
+      beta_dists[[paste(fmri_data$rois[i], cois[j], sep = '-')]] <- as.double(sig_betas)
+      pval_dists[[paste(fmri_data$rois[i], cois[j], sep = '-')]] <- as.double(pval_betas)
     }
   }
   #browser()
@@ -447,18 +490,19 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL) {
   #coefficients <- coefficients[1:dim(design_mat)[2],]
   colnames(mean_betas) <- fmri_data$rois
   mean_betas <- data.frame(mean_betas)
+  rownames(mean_betas) <- cois
 
   # Return names...
-  if (!seperate) {
-    rownames(mean_betas) <- cois
-  }
+  #if (!seperate) {
+  #}
 
   # Some diagnostic plots...
   #ggplot(melt(rob_model$fitted.values), aes(1:444,value)) + geom_point(col = 'red')
   #+ geom_point(aes(1:444,melt(fmri_data$acts[,503])), col = 'blue')
 
   # Save the linear model, list of conds removed,
-  lm_list <- list(coef = mean_betas, dists = dists, bad_cond = bad_cond, design = design_mat,
+  lm_list <- list(coef = mean_betas, beta_dists = beta_dists, pval_dists = pval_dists,
+                  bad_cond = bad_cond, design = design_mat,
                   sig_voxels = sig_voxels, sig_beg_end = sig_beg_end)
   return(lm_list)
 }
@@ -591,5 +635,44 @@ fir_design <- function(onsets, n_scans, res = 0.1, hrf_len = 16) {
   }
 
   return(fir_design)
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
+#                     Old means of getting ROI beta value                        #
+# ------------------------------------------------------------------------------ #
+function(){
+  for (j in 1:n_cois) {
+    sig_voxels <- p_values[cois, ][j, ] < (0.05/fmri_data$n_voxels_by_roi[j])
+
+    # Index the set of significant voxels by ROI
+    for (i in 1:n_rois) {
+      vox_first <- roi_beg_end[i] + 1
+      vox_last  <- roi_beg_end[i+1]
+      sig_beg_end[j, i + 1] <- sum(sig_voxels[vox_first:vox_last])
+    }
+
+    # Go from # of significant per roi to a set of indexes
+    sig_beg_end[j, ] <- cumsum(sig_beg_end[j,])
+
+    # Take means over significant voxels to use as ROI activation series
+    for (i in 1:n_rois) {
+      if (sig_beg_end[j,i] != sig_beg_end[j,i + 1]) {
+         vox_first <- sig_beg_end[j,i] + 1
+         vox_last  <- sig_beg_end[j,i+1]
+
+         sig_voxel_avg <- data.frame(rowMeans(as.matrix(fmri_data$acts[, sig_voxels][,vox_first:vox_last])))
+         new_res  <- mclapply(sig_voxel_avg, fit_acts, mc.cores = cores[1], mc.silent = TRUE)
+         new_coef <- as.matrix(new_res[[1]][[1]])
+         rownames(new_coef) <- rownames(coefficients)
+
+         mean_betas[j,i] <- new_coef[cois,][j]
+         sig_betas <- coefficients[cois,][j, sig_voxels][vox_first:vox_last]
+
+         dists[[paste(fmri_data$rois[i], cois[j], sep='-')]] <- as.double(sig_betas)
+      }
+    }
+  }
 }
 # ------------------------------------------------------------------------------ #

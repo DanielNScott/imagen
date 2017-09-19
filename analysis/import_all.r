@@ -158,7 +158,7 @@ import_fmri <- function(data, base_dir, subj_beg, subj_end, loc = 'local', proce
         fmri_data <- read_fmri_data(id, timeseries_dir, taskdata_dir, movement_dir, base_dir)
 
         # Fit linear models to roi activations for std and AG analysis
-        fmri_lm_fit  <- fit_fmri_glm(fmri_data, seperate = seperate, sig_voxels)
+        fmri_lm_fit <- fit_fmri_glm(fmri_data, seperate = seperate, sig_voxels, core_par = TRUE)
 
         # Set up data structure for use in AG analysis
         subj_fldname <- paste('subj-', sprintf('%04i', subj_num), sep = '')
