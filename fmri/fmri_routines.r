@@ -91,11 +91,12 @@ read_fmri_data <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, 
   # n_voxels_total  <- length(rois)
   # colnames(tmp) <- rois
 
+
   #tmp <- matrix(NA, dim(activations)[1], n_voxels_total)
   tmp <- matrix(NA, dim(activations)[1], 0)
   for (roi in rois) {
     # Whole roi average
-    # tmp[,roi]    <- rowMeans(activations[, as.logical(roi_voxels[[roi]]) ], na.rm = TRUE)
+    #tmp[,roi]  <- rowMeans(activations[, as.logical(roi_voxels[[roi]]) ], na.rm = TRUE)
 
     # Lazy alternative to mask FIX THIS LATER
     tmp <- cbind(tmp, activations[, as.logical(roi_voxels[[roi]]) ])
@@ -152,6 +153,30 @@ read_fmri_data <- function(subj_id, timeseries_dir, taskdata_dir, movement_dir, 
 
   spike_inds <- which(abs(activations) >= 3)
   activations[spike_inds] <- 0 # See note on spike removal above.
+
+  whole_roi = FALSE
+  if (whole_roi) {
+    tmp <- matrix(NA, dim(activations)[1], length(rois))
+    prev_ind <- 1
+    for (roi in 1:length(rois)) {
+      # Whole roi average
+      cur_ind    <- cumsum(n_voxels_by_roi)[[roi]]
+      tmp[,roi]  <- rowMeans(activations[, prev_ind:cur_ind], na.rm = TRUE)
+      prev_ind   <- cur_ind + 1
+    }
+    activations <- tmp
+
+    # Z-Score the data for each participant
+    mean <- colMeans(activations, na.rm = TRUE)
+    std  <- apply(activations, 2, sd, na.rm = TRUE)
+
+    activations <- sweep(activations, 2, mean, FUN = "-")
+    activations <- sweep(activations, 2, std , FUN = "/")
+  }
+
+  # Initial spike removal.
+  # - Zero is preferred to NA so that the number of non NA entries is retained.
+  # - These will be set to 0 again after being perturbed by corrections.
 
   # Return data
   data <- list(acts = activations, spikes = spike_inds, task_outcome = task_outcome,
@@ -263,7 +288,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE
       n_trials_prev <- n_trials
       index_list[[cond]]    <- c(ind_beg, ind_end)
 
-     } else {
+    } else {
 
        # Standard fmri analysis - convolve hrf w/ event times:
        conv_regs[,cond] <- fmri.stimulus(scans = n_scans, onsets = onsets, duration = durations)
@@ -390,17 +415,21 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE
       residual_df  <- 430
       residual_var <- t(residuals) %*% residuals / residual_df
 
-      ctrst_vec <- as.vector(c(1, -1, 0,0,0,0,0,  0,0,0,0,0))
+      n_reg     <- dim(design_mat)[2]
+      ctrst_vec <- double(n_reg)
+      ctrst_vec[1:2] <- c(1,-1)
       ctrst_var <- 1/sum(abs(ctrst_vec)) * t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec * residual_var
-      ctrst     <- ctrst_vec %*% model$regcoef[2:13]
+      ctrst     <- ctrst_vec %*% model$regcoef[2:(n_reg+1)]
       ctrst_t   <- ctrst / sqrt(ctrst_var)
       ctrst_p   <- 2*( 2*pt(-abs(ctrst_t), df = residual_df) )
       coef      <- c(coef, ctrst)
       p_vals    <- c(p_vals, ctrst_p)
 
-      ctrst_vec <- as.vector(c(0, 1,-1, 0,0,0,0,0,  0,0,0,0))
+      n_reg     <- dim(design_mat)[2]
+      ctrst_vec <- double(n_reg)
+      ctrst_vec[2:3] <- c(1,-1)
       ctrst_var <- 1/sum(abs(ctrst_vec)) * t(ctrst_vec) %*% solve(t(design_mat) %*% design_mat) %*% ctrst_vec * residual_var
-      ctrst     <- ctrst_vec %*% model$regcoef[2:13]
+      ctrst     <- ctrst_vec %*% model$regcoef[2:(n_reg+1)]
       ctrst_t   <- ctrst / sqrt(ctrst_var)
       ctrst_p   <- 2*( 2*pt(-abs(ctrst_t), df = residual_df) )
       coef      <- c(coef, ctrst)
@@ -413,6 +442,7 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE
     }
   }
 
+  browser()
   # Perform regression and time it
   time <- system.time(
     coef_and_ps <- mclapply(data.frame(fmri_data$acts), fit_acts, mc.cores = cores[1], mc.silent = TRUE)
@@ -455,9 +485,13 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE
   mean_betas   <- matrix(0, n_cois, n_rois    )
   beta_dists   <- list()
   pval_dists   <- list()
+  relax_thresh <- FALSE
 
   #save(list = ls(), file = 'fmri_checkpoint.rds')
   #browser()
+  whole_rois = FALSE
+  re_average = TRUE
+  if (!whole_rois) {
   for (j in 1:n_cois) {
 
     # Get roi-corrected significant voxels
@@ -466,28 +500,54 @@ fit_fmri_glm <- function(fmri_data, seperate, sig_voxels = NULL, core_par = TRUE
       vox_first <- roi_beg_end[[i]] + 1
       vox_last  <- roi_beg_end[[i + 1]]
 
-      sig_voxels   <- 0
-      factor       <- 0
-      # Accept increasing amounts of error
-      cur_n_vox <- fmri_data$n_voxels_by_roi[[i]]
-      while ((sum(sig_voxels) < max(cur_n_vox/100, 5)) & (factor <= 0.05)) {
-        sig_voxels <- p_values[cois,vox_first:vox_last][j,] < (0.0001/cur_n_vox + factor)
-        factor <- factor + 0.0005
-      }
-      #sig_beg_end[j, i + 1] <- sum(sig_voxels[vox_first:vox_last])
+      sig_voxels <- 0
+      factor     <- 0
+      cur_n_vox  <- fmri_data$n_voxels_by_roi[[i]]
 
-      #
+      # Accept increasing amounts of error
+      #while ((sum(sig_voxels) < max(cur_n_vox/100, 5)) & (factor <= 0.05)) {
+      #  sig_voxels <- p_values[cois,vox_first:vox_last][j,] < (0.0001/cur_n_vox + factor)
+      #  factor <- factor + 0.0005
+      #}
+
+      # Std. conservative p-vals
+      std_thresh <- 0.05/cur_n_vox
+      #max_thresh <-  0.05/cur_n_vox
+      sig_voxels <- p_values[cois,vox_first:vox_last][j,] < std_thresh
+      #n_sig_vox  <- sum(sig_voxels)
+      #min_acc    <- ceiling(cur_n_vox / 50)
+
+      # If too few, relax threshold up to 0.05/cur_n_vox
+      #while ((n_sig_vox < min_acc ) & (factor <= max_thresh) & relax_thresh) {
+      #  sig_voxels <- p_values[cois,vox_first:vox_last][j,] < (0.0001/cur_n_vox + factor)
+      #  factor <- factor + 0.0005/cur_n_vox
+      #}
+
+      # Take avg and save
       sig_betas  <- coefficients[cois, colnames(sig_voxels)][j, sig_voxels]
       pval_betas <- p_values[cois, colnames(sig_voxels)][j, sig_voxels]
-      mean_betas[j,i] <- median( as.matrix(sig_betas) )
+      mean_betas[j,i] <- mean( as.matrix(sig_betas) )
 
       beta_dists[[paste(fmri_data$rois[i], cois[j], sep = '-')]] <- as.double(sig_betas)
       pval_dists[[paste(fmri_data$rois[i], cois[j], sep = '-')]] <- as.double(pval_betas)
+
+      if (re_average) {
+        # Get average time-series of significant voxels only, then fit.
+        sig_voxel_avg <- data.frame(rowMeans(as.matrix(fmri_data$acts[, sig_voxels][,vox_first:vox_last])))
+        new_res  <- mclapply(sig_voxel_avg, fit_acts, mc.cores = cores[1], mc.silent = TRUE)
+        new_coef <- as.matrix(new_res[[1]][[1]])
+        rownames(new_coef) <- rownames(coefficients)
+
+        mean_betas[j,i] <- new_coef[cois,][j]
+        sig_betas <- coefficients[cois,][j, sig_voxels][vox_first:vox_last]
+      }
     }
+  }
+  }  else {
+    mean_betas <- coefficients[cois,]
   }
   #browser()
 
-  #coefficients <- coefficients[1:dim(design_mat)[2],]
   colnames(mean_betas) <- fmri_data$rois
   mean_betas <- data.frame(mean_betas)
   rownames(mean_betas) <- cois
