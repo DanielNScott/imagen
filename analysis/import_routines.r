@@ -48,13 +48,14 @@ import_rob_data <- function(filename) {
   rob <- read.csv(filename, header = TRUE)
 
   # Found using: grep('SS', colnames(rob), value=TRUE)
-  cnames <- c('Subject', 'all_SS_SN_STN', 'all_SS_pSMA_PCG', "SST_SS_imp_lIFG_BA10", "SST_SS_imp_lIFG_BA9",
-              "SST_SS_imp_lIFG_BA10", "SST_SS_imp_lIFG_BA9", "SST_SF_comp_rVS")
+  cnames <- c('Subject', 'SST_SS_comp_rVS', 'all_SS_SN_STN', 'all_SS_pSMA_PCG', "SST_SS_imp_lIFG_BA10",
+              "SST_SS_imp_lIFG_BA9", 'SST_SS_imp_lMFG', "SST_SF_imp_lIFG_BA10", "SST_SF_imp_lIFG_BA9",
+              "SST_SF_comp_rVS", 'avg_VS_MID10')
   rob <- rob[cnames]
   rob[rob == -100] <- NA
   rob[rob == 0] <- NA
-  colnames(rob) <- c('Subject', 'SS_SN_STN', 'SS_pSMA_PCG', "SS_lIFG_BA10", "SS_lIFG_BA9", "SS_lIFG_BA10",
-                     "SS_lIFG_BA9", "SF_rVS")
+  colnames(rob) <- c('Subject', 'SS_rVS', 'SS_STN', 'SS_pSMA', "SS_BA10", "SS_BA9", 'SS_lMFG',
+                    "SF_BA10", "SF_BA9", "SF_rVS", 'MID_VS')
   return(rob)
 }
 # ------------------------------------------------------------------------------ #
