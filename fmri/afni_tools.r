@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------#
-write_stim_1D <- function(task_data, dir) {
+write_stim_1D <- function(task_data, dir, ag = FALSE) {
   # Writes a set of AFNI .1D stimulus files for the SST.
   #
   # Args:
@@ -14,11 +14,24 @@ write_stim_1D <- function(task_data, dir) {
              'GO_WRONG_KEY_RESPONSE', 'GO_FAILURE', 'STOP_TOO_EARLY_RESPONSE')
   hands  <- c('LeftArrow', 'RightArrow')
 
-  # Define which conditions to collapse across hands
-  collapse = c(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+  # Define which conditions to make minimal regressors for.
+  # 'collapse' collapses across hands AND turns off by-trial regressor file-writing.
+  if (ag) {
+    collapse <- c(FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE)
+  } else {
+    collapse <- c(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+  }
 
   # Determine which conditions get files.
   conditions <- c(outer(events[!collapse], hands, paste), events[collapse])
+
+  # Which establish which conditions get seperation of trials
+  n_handed_conds  <- 2*length(events[!collapse])
+  n_conds         <- length(conditions)
+  seperate_trials <- c(rep_len(TRUE, n_handed_conds), rep_len(FALSE, n_conds - n_handed_conds))
+
+  stim_text <- ''
+  global_instance_num <- 1
 
   # Write a file for everything in outer(), modulo any collapsing
   for (cond in conditions) {
@@ -31,11 +44,12 @@ write_stim_1D <- function(task_data, dir) {
     if (length(split) == 2) {
       hand      <- split[2]
       hand_msk  <- task_stims == hand
-      hand_abrv <- ifelse(hand == 'LeftArrow', '_l', '_r')
+      hand_abrv <- ifelse(hand == 'LeftArrow', '_left', '_right')
     } else {
-      # Hand mask should always be TRUE here.
       hand_msk  <- task_stims == hands[1] || task_stims == hands[2]
       hand_abrv <- ''
+
+      # Hand mask should always be TRUE here.
       assertthat::assert_that(hand_msk)
     }
 
@@ -48,11 +62,48 @@ write_stim_1D <- function(task_data, dir) {
       # Write table doesn't work here becauase it inserts row indexing...
       write(times, file = fname, ncolumns = 100000)
 
+      cond_index <- grep(cond, conditions)
+      if (seperate_trials[cond_index]) {
+
+        local_stim_num <- 0
+        rep_set <- 1:length(times)
+        for (instance in rep_set) {
+          afni_stim_name  <- paste(tolower(stim), hand_abrv, sep = '')
+
+          fname_inst <- paste(dir, '/1Ds/', afni_stim_name, '_', toString(instance), '.1D', sep = '')
+          fname_rest <- paste(dir, '/1Ds/', afni_stim_name, '_', toString(instance), '_rest.1D', sep = '')
+
+          this_time   <- times[instance]
+          other_times <- times[setdiff(rep_set, instance)]
+          write(this_time  , file = fname_inst, ncolumns = 1)
+          write(other_times, file = fname_rest, ncolumns = 100000)
+
+          if (cond == 'STOP_SUCCESS LeftArrow' || cond == 'STOP_FAILURE LeftArrow') {
+            local_stim_num <- local_stim_num + 1
+            stim_num   <- toString(12 + global_instance_num)
+            stim_text  <- paste(stim_text,  ' -stim_file ', stim_num, ' ${dir1D}', afni_stim_name, '_',
+                                local_stim_num, '.1D', ' \'SPMG1\' ', '-stim_label ', stim_num, ' ',
+                                afni_stim_name, '_', local_stim_num ,' \\\\\n', sep = '')
+
+            global_instance_num <- global_instance_num + 1
+          }
+        }
+      }
     } else {
       # This is the convention in afni...
       write(x = '*', file = fname)
     }
   }
+
+  # Fix up AG deconvolution file.
+  deconv_file <- 'deconvolve.sh'
+  deconv_text <- readChar(deconv_file, file.info(deconv_file)$size)
+
+  deconv_text <- sub('NSTIM_ANCHOR\n', paste(' -num_stimts', toString(global_instance_num - 1), ' \\\\\n'), deconv_text)
+  deconv_text <- sub('STIMS_ANCHOR\n', stim_text, deconv_text)
+
+  write(x = deconv_text, file = deconv_file)
+
 }
 #-----------------------------------------------------------------------#
 
@@ -128,7 +179,7 @@ setup_afni <- function(loc, subj_ids) {
     link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
     link_cmd3  <- paste('ln -s ', move_full_name, ' ', subj_dir, '/1Ds/motion_demean.1D', sep = '')
     link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/BL_SST.nii.gz', sep = '')
-    #link_cmd5  <- paste('ln -s ', afni_dir, wipe_fname, ' ', subj_dir, '/', wipe_fname, sep = '')
+    link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/', deconvolve.sh, sep = '')
     link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
 
     # Execute all that
@@ -142,7 +193,7 @@ setup_afni <- function(loc, subj_ids) {
     system(link_cmd6)
 
     # Write regression files
-    write_stim_1D(task_data, subj_dir)
+    write_stim_1D(task_data, subj_dir, ag = TRUE)
 
     jobname  <- paste(subj_id_str, 'glm', sep = '_')
     cdcmd1   <- paste('cd ', subj_id_str, '_DATA;', sep = '')
