@@ -80,7 +80,7 @@ write_stim_1D <- function(task_data, dir, ag = FALSE) {
 
           if (cond == 'STOP_SUCCESS LeftArrow' || cond == 'STOP_FAILURE LeftArrow') {
             local_stim_num <- local_stim_num + 1
-            stim_num   <- toString(12 + global_instance_num)
+            stim_num   <- toString(13 + global_instance_num)
             stim_text  <- paste(stim_text,  ' -stim_file ', stim_num, ' ${dir1D}', afni_stim_name, '_',
                                 local_stim_num, '.1D', ' \'SPMG1\' ', '-stim_label ', stim_num, ' ',
                                 afni_stim_name, '_', local_stim_num ,' \\\\\n', sep = '')
