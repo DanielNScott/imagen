@@ -1,6 +1,13 @@
-
-
+#-----------------------------------------------------------------------#
 write_stim_1D <- function(task_data, dir) {
+  # Writes a set of AFNI .1D stimulus files for the SST.
+  #
+  # Args:
+  #   task_data: A data frame with task timing and outcome info.
+  #   dir: The directory in which to create and fill a subdir '1Ds'.
+  #
+  # Returns:
+  #   Nothing
 
   # Possible conditions are outer(-, -) of these.
   events <- c('GO_SUCCESS', 'STOP_SUCCESS', 'STOP_FAILURE', 'GO_TOO_LATE',
@@ -47,10 +54,12 @@ write_stim_1D <- function(task_data, dir) {
     }
   }
 }
+#-----------------------------------------------------------------------#
 
 
-# Sets up the */afni/ file structure so fits can be created
+#-----------------------------------------------------------------------#
 setup_afni <- function(loc, subj_ids) {
+  # Sets up the */afni/ file structure so fits can be created
 
   # Different base directories for cluster or local use
   if (loc == 'local') { base_dir <- '/home/dan/projects/imagen/'
@@ -70,6 +79,9 @@ setup_afni <- function(loc, subj_ids) {
     timeseries_dir <- paste(base_dir, '/data/BL_SST_AFNI/', sep = '')
     movement_dir   <- paste(base_dir, '/data/BL_SST_move/', sep = '')
   }
+
+  # Begin writing shell script to submit everything
+  write('#!/bin/bash \n', file = 'submitter.sh')
 
   # Setup subject everything
   for (subj_id in subj_ids[[1]]) {
@@ -105,16 +117,19 @@ setup_afni <- function(loc, subj_ids) {
     }
 
     # Setup names of stuff and softlink command
-    afni_dir   <- paste(base_dir, '/afni/', sep = '')
+    afni_dir   <- paste(base_dir, '/data/afni/', sep = '')
     subj_dir   <- paste(afni_dir, subj_id_str, '_DATA', sep = '')
     subj_1Ds   <- paste(subj_dir, '/1Ds', sep = '')
 
     # Name subject directories, and write symlink commands
-    proc_fname <- 'process_subj.tcsh'
+    proc_fname <- 'process_subj.sh'
+    wipe_fname <- 'wipe_results.sh'
     link_cmd1  <- paste('ln -s ', afni_dir, proc_fname, ' ', subj_dir, '/', proc_fname, sep = '')
     link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
     link_cmd3  <- paste('ln -s ', move_full_name, ' ', subj_dir, '/1Ds/motion_demean.1D', sep = '')
-    link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/', sep = '')
+    link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/BL_SST.nii.gz', sep = '')
+    #link_cmd5  <- paste('ln -s ', afni_dir, wipe_fname, ' ', subj_dir, '/', wipe_fname, sep = '')
+    link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
 
     # Execute all that
     dir.create(subj_dir)
@@ -123,10 +138,145 @@ setup_afni <- function(loc, subj_ids) {
     system(link_cmd2)
     system(link_cmd3)
     system(link_cmd4)
+    #system(link_cmd5)
+    system(link_cmd6)
 
     # Write regression files
     write_stim_1D(task_data, subj_dir)
+
+    jobname  <- paste(subj_id_str, 'glm', sep = '_')
+    cdcmd1   <- paste('cd ', subj_id_str, '_DATA;', sep = '')
+    cdcmd2   <- 'cd ../; sleep 1;'
+    srunpfx  <- 'sbatch -t 0:05:00 -n 1 --nodes 1 --cpus-per-task 1 -J'
+    srun_cmd <- paste(cdcmd1, srunpfx, jobname, 'process_subj.sh ;', cdcmd2, sep = ' ')
+
+    write(srun_cmd, file = 'submitter.sh', append = TRUE)
   }
 }
+#-----------------------------------------------------------------------#
+
+
+#-----------------------------------------------------------------------#
+read_stats_dump <- function(fname) {
+  roi_stats <- read.table(fname, sep = ' ', header = FALSE, blank.lines.skip = FALSE)
+  paste_fun  <- function(x,y) {paste(x, y, sep = '_')}
+  str_outer  <- function(x,y) {as.vector(t(outer(x, y, paste_fun)))}
+
+  types  <- c('hrf', 'hrf_dt', 'hrf_dd')
+  stats  <- c('beta', 'tval')
+  conds  <- c('gs', 'ss', 'sf', 'gf', 'gtl', 'gwk', 'gte')
+  ctrsts <- c('ss_go', 'ss_sf')
+
+  stat_names <- c('all_Fval')
+  for (cond in conds) {
+    # Setup "cond_type_stat" fields
+    block <- str_outer(cond, types)
+    block <- str_outer(block, stats)
+
+    # Append the condition level F-value and save
+    block <- c(block, paste_fun(cond, 'Fval'))
+    stat_names <- c(stat_names, block)
+  }
+  for (ctrst in ctrsts) {
+    block <- str_outer(ctrst, stats)
+    stat_names <- c(stat_names, block, paste_fun(ctrst, 'Fval'))
+  }
+
+  colnames(roi_stats) <- stat_names
+  roi_stats <- t(roi_stats)
+  return(roi_stats)
+}
+#-----------------------------------------------------------------------#
+
+
+#-----------------------------------------------------------------------#
+read_all_stats <- function(subj_ids, afni_dir) {
+
+  #roi_mask_names <- c('L_AAL_ACC', 'R_AAL_ACC', 'R_Caudate_AAL',
+  #                     'R_GPe', 'R_GPi', 'R_IFG', 'R_NAcc', 'R_preSMA',
+  #                     'R_STN', 'R_Thalamus_AAL')
+  rois <- c('rIFG', 'rPreSMA', 'rCaudate', 'rGPe', 'rGPi',
+            'rSTN', 'rThalamus', 'rNAcc', 'lACC', 'rACC')
+  cois <- c('gs_hrf_beta', 'ss_hrf_beta', 'sf_hrf_beta', 'ss_go_beta', 'ss_sf_beta')
+  cond <- c('go', 'st', 'sr', 'st_go', 'st_sr')
+
+  paste_fun   <- function(x,y) {paste(x, y, sep = '_')}
+  roi_by_cond <- as.vector(outer(rois, cond, paste_fun))
+
+  results <- data.frame('Subject' = subj_ids)
+
+  std_fmri_feats <- as.vector(outer(rois, cond, function(x,y) {paste(x,y, sep = '')}))
+
+  # Cycle through subjects directories, doing function "fn"
+  merge_in <- TRUE
+  for (subj_id in subj_ids[[1]]) {
+    subj_id_str <- formatC(subj_id, width = 12, format = 'd', flag = '0')
+
+    # Setup names of stuff
+    subj_dir <- paste(afni_dir, subj_id_str, '_DATA/', sep = '')
+
+    stats <- tryCatch({
+      stats <- read_stats_dump(paste(subj_dir, '/stats_masked.out', sep=''))
+    }, error = function(e){
+      print(paste('Unable to read file stats for', subj_id_str))
+      return(TRUE)
+    })
+
+    if (is.logical(stats)) {next}
+
+    mean_betas <- stats[cois,]
+    colnames(mean_betas) <- rois
+    for (cnum in 1:length(cois)) {
+      condi <- cois[cnum]
+      condo <- cond[cnum]
+
+      cond_frame <- data.frame('Subject' = subj_id, matrix(mean_betas[condi,], ncol = length(rois)))
+      cond_names <- as.vector(outer(rois, condo, paste_fun))
+      colnames(cond_frame) <- c('Subject', cond_names)
+
+      if (merge_in) {
+        results <- merge(results, cond_frame, by = 'Subject', all = TRUE)
+      } else {
+        #
+        row_indices <- match(subj_id, results[['Subject']])
+        results[cond_names][row_indices, ] <- cond_frame[cond_names]
+      }
+    }
+    merge_in <- FALSE
+  }
+
+  # Convert zeros to NAs
+  results[results == 0] <- NA
+  return(results)
+}
+# ------------------------------------------------------------------------------ #
+
+
+#-----------------------------------------------------------------------#
+do_for_subj_dirs <- function(loc, subj_ids, fn) {
+
+  ###################################################################
+  #        This does nothing right now. Deal with it later...       #
+  ###################################################################
+
+  # Different base directories for cluster or local use
+  if (loc == 'local') { base_dir <- '/home/dan/projects/imagen/'
+  } else {              base_dir <- '/users/dscott3/projects/imagen/'}
+
+  afni_dir <- paste(base_dir, '/afni/', sep = '')
+  results  <- list()
+
+  # Cycle through subjects directories, doing function "fn"
+  for (subj_id in subj_ids[[1]]) {
+    subj_id_str <- formatC(subj_id, width = 12, format = 'd', flag = '0')
+
+    # Setup names of stuff
+    subj_dir   <- paste(afni_dir, subj_id_str, '_DATA/', sep = '')
+    subj_1Ds   <- paste(subj_dir, '/1Ds/', sep = '')
+
+    results <- append(results, list())
+  }
+}
+#-----------------------------------------------------------------------#
 
 
