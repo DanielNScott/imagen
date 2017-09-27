@@ -53,6 +53,26 @@ write_stim_1D <- function(task_data, dir, ag = FALSE) {
       assertthat::assert_that(hand_msk)
     }
 
+    ##############
+    # EITHER WAY, WRITE OUT STD .1D!
+    #    There is some duplication of work (and overwriting) here...
+    #    ... but whatever. Time! time!!!!!
+    #############
+    # Select based on mask, etc.
+    mask  <- (task_data['Response.Outcome'] == stim)
+    times <- t(task_data[mask, 'Trial.Start.Time..Onset.']) / 1000
+    fname <- paste(dir, '/1Ds/', tolower(stim), '.1D', sep = '')
+    #print(times[length(times)])
+
+    if (length(times) != 0) {
+      # Write table doesn't work here becauase it inserts row indexing...
+      write(times, file = fname, ncolumns = 100000)
+    } else {
+      # This is the convention in afni...
+      write(x = '*', file = fname)
+    }
+    ###############
+
     # Select based on mask, etc.
     mask  <- (task_data['Response.Outcome'] == stim) & (hand_msk)
     times <- t(task_data[mask, 'Trial.Start.Time..Onset.']) / 1000
@@ -75,13 +95,13 @@ write_stim_1D <- function(task_data, dir, ag = FALSE) {
 
           this_time   <- times[instance]
           other_times <- times[setdiff(rep_set, instance)]
-          write(this_time  , file = fname_inst, ncolumns = 1)
-          write(other_times, file = fname_rest, ncolumns = 100000)
+          #write(this_time  , file = fname_inst, ncolumns = 1)
+          #write(other_times, file = fname_rest, ncolumns = 100000)
 
           if (cond == 'STOP_SUCCESS LeftArrow' || cond == 'STOP_FAILURE LeftArrow') {
             local_stim_num <- local_stim_num + 1
             stim_num   <- toString(13 + global_instance_num)
-            stim_text  <- paste(stim_text,  ' -stim_file ', stim_num, ' ${dir1D}', afni_stim_name, '_',
+            stim_text  <- paste(stim_text,  ' -stim_times ', stim_num, ' ${dir1D}', afni_stim_name, '_',
                                 local_stim_num, '.1D', ' \'SPMG1\' ', '-stim_label ', stim_num, ' ',
                                 afni_stim_name, '_', local_stim_num ,' \\\\\n', sep = '')
 
@@ -96,13 +116,13 @@ write_stim_1D <- function(task_data, dir, ag = FALSE) {
   }
 
   # Fix up AG deconvolution file.
-  deconv_file <- 'deconvolve.sh'
-  deconv_text <- readChar(deconv_file, file.info(deconv_file)$size)
+  #deconv_file <- paste(dir, '/deconvolve.sh', sep = '')
+  #deconv_text <- readChar(deconv_file, file.info(deconv_file)$size)
 
-  deconv_text <- sub('NSTIM_ANCHOR\n', paste(' -num_stimts', toString(global_instance_num - 1), ' \\\\\n'), deconv_text)
-  deconv_text <- sub('STIMS_ANCHOR\n', stim_text, deconv_text)
+  #deconv_text <- sub('NSTIM_ANCHOR\n', paste(' -num_stimts', toString(13 + global_instance_num - 1), ' \\\\\n'), deconv_text)
+  #deconv_text <- sub('STIMS_ANCHOR\n', stim_text, deconv_text)
 
-  write(x = deconv_text, file = deconv_file)
+  #write(x = deconv_text, file = deconv_file)
 
 }
 #-----------------------------------------------------------------------#
@@ -179,7 +199,7 @@ setup_afni <- function(loc, subj_ids) {
     link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
     link_cmd3  <- paste('ln -s ', move_full_name, ' ', subj_dir, '/1Ds/motion_demean.1D', sep = '')
     link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/BL_SST.nii.gz', sep = '')
-    link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/', deconvolve.sh, sep = '')
+    link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/deconvolve.sh', sep = '')
     link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
 
     # Execute all that
@@ -189,7 +209,7 @@ setup_afni <- function(loc, subj_ids) {
     system(link_cmd2)
     system(link_cmd3)
     system(link_cmd4)
-    #system(link_cmd5)
+    system(link_cmd5)
     system(link_cmd6)
 
     # Write regression files
@@ -208,10 +228,19 @@ setup_afni <- function(loc, subj_ids) {
 
 
 #-----------------------------------------------------------------------#
-read_stats_dump <- function(fname) {
+read_stats_dump <- function(fname, ag) {
   roi_stats <- read.table(fname, sep = ' ', header = FALSE, blank.lines.skip = FALSE)
   paste_fun  <- function(x,y) {paste(x, y, sep = '_')}
   str_outer  <- function(x,y) {as.vector(t(outer(x, y, paste_fun)))}
+
+  # In AG case, chop 9 off the end and 5 off the front, then find the F-stat
+  #  on the basis of the trial-data later
+  if (ag) {
+    n_stats   <- length(roi_stats)
+    roi_stats <- roi_stats[, setdiff(1:n_stats,  c(1:5, seq(n_stats, n_stats-8, -1)))]
+    colnames(roi_stats) <- paste('stop_signal:', 1:dim(roi_stats)[2])
+    return(roi_stats)
+  }
 
   types  <- c('hrf', 'hrf_dt', 'hrf_dd')
   stats  <- c('beta', 'tval')
@@ -241,7 +270,7 @@ read_stats_dump <- function(fname) {
 
 
 #-----------------------------------------------------------------------#
-read_all_stats <- function(subj_ids, afni_dir) {
+read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
 
   #roi_mask_names <- c('L_AAL_ACC', 'R_AAL_ACC', 'R_Caudate_AAL',
   #                     'R_GPe', 'R_GPi', 'R_IFG', 'R_NAcc', 'R_preSMA',
@@ -267,30 +296,48 @@ read_all_stats <- function(subj_ids, afni_dir) {
     subj_dir <- paste(afni_dir, subj_id_str, '_DATA/', sep = '')
 
     stats <- tryCatch({
-      stats <- read_stats_dump(paste(subj_dir, '/stats_masked.out', sep=''))
+      stats <- read_stats_dump(paste(subj_dir, '/stats_masked.out', sep=''), ag)
     }, error = function(e){
       print(paste('Unable to read file stats for', subj_id_str))
       return(TRUE)
     })
-
     if (is.logical(stats)) {next}
 
-    mean_betas <- stats[cois,]
-    colnames(mean_betas) <- rois
-    for (cnum in 1:length(cois)) {
-      condi <- cois[cnum]
-      condo <- cond[cnum]
-
-      cond_frame <- data.frame('Subject' = subj_id, matrix(mean_betas[condi,], ncol = length(rois)))
-      cond_names <- as.vector(outer(rois, condo, paste_fun))
-      colnames(cond_frame) <- c('Subject', cond_names)
-
+    if (ag) {
+      stats <- t(stats)
+      colnames(stats) <- rois
+      stats <- cov(stats)
+      dim(stats) <- NULL
+      stats <- matrix(stats, ncol = 100)
+      cond_names <- outer(rois, 1:length(rois), paste)
+      colnames(stats) <- cond_names
+      cond_frame <- data.frame('Subject' = subj_id, stats)
       if (merge_in) {
-        results <- merge(results, cond_frame, by = 'Subject', all = TRUE)
+        results <- merge(results, cond_frame, by = 'Subject')
       } else {
-        #
-        row_indices <- match(subj_id, results[['Subject']])
-        results[cond_names][row_indices, ] <- cond_frame[cond_names]
+        results <- rbind(results, cond_frame)
+        #row_indices <- match(subj_id, results[['Subject']])
+        #results[cond_names][row_indices, ] <- cond_frame[cond_names]
+      }
+    } else {
+
+      mean_betas <- stats[cois,]
+      colnames(mean_betas) <- rois
+      for (cnum in 1:length(cois)) {
+         condi <- cois[cnum]
+         condo <- cond[cnum]
+
+         cond_frame <- data.frame('Subject' = subj_id, matrix(mean_betas[condi,], ncol = length(rois)))
+         cond_names <- as.vector(outer(rois, condo, paste_fun))
+         colnames(cond_frame) <- c('Subject', cond_names)
+
+         if (merge_in) {
+         results <- merge(results, cond_frame, by = 'Subject', all = TRUE)
+         } else {
+         #
+         row_indices <- match(subj_id, results[['Subject']])
+         results[cond_names][row_indices, ] <- cond_frame[cond_names]
+         }
       }
     }
     merge_in <- FALSE
@@ -301,7 +348,6 @@ read_all_stats <- function(subj_ids, afni_dir) {
   return(results)
 }
 # ------------------------------------------------------------------------------ #
-
 
 #-----------------------------------------------------------------------#
 do_for_subj_dirs <- function(loc, subj_ids, fn) {
