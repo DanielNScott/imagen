@@ -24,7 +24,24 @@ analysis <- function(data) {
     geom_histogram(alpha = 0.2, position = 'identity') +
     ggtitle('SST Params by Train / Test Set')
 
+  # Covariance matrices
+  for (subj_num in 6:10) {
+    roi_nums <- c(2,3,5,6)
+    subj_id  <- fmri_cov['Subject'][subj_num,]
+    flat_cov <- fmri_cov[subj_num,2:101]
 
+    subj_cov <- matrix(flat_cov, ncol = 10)[roi_nums, roi_nums]
+    subj_cov <- matrix(unlist(subj_cov), ncol = length(roi_nums), byrow = TRUE)
+    colnames(subj_cov) <- c('rPreSMA',  'rCaudate', 'rGPi', 'rSTN')
+    melt_cov <- melt(cov2cor(subj_cov))
+
+    title <- paste('Correlations in ROI Activity:', toString(subj_id))
+    plot  <- level_wrapper(melt_cov, title, ylabel = NULL)
+    print(plot)
+
+    # Also, compute average as we're doing this.
+    if (subj_cov[1,1] > 2000) {avg <- avg + subj_cov; n <- n+1; print(subj_cov)}
+  }
 
   # ------------------------------------
   ### Densities
@@ -57,6 +74,16 @@ analysis <- function(data) {
   # ADHD
   feats_b <- c('adhd_teacher', 'adhd_parent', 'adhd_child')
   ggpairs_wrap(data$scores[feats_b], 'Hyperactivity Metrics')
+
+  # Std fMRI
+  rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
+  titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
+              'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
+  sfx <- c('_st_go','_go','_st')
+  for (i in 1:length(sfx)) {
+    std_fmri_feats <- paste(rois, sfx[i], sep = '')
+    print(ggpairs_wrap(data$raw[std_fmri_feats], title = 'fMRI GLM Weights'))
+  }
 
   # ------------------------------------
   ### PAIR-WISE
@@ -167,16 +194,6 @@ analysis <- function(data) {
   # CANTAB
   feats_a <- data$names$CANTAB[5:11]
   ggpairs_wrap(data$scores[ feats_a])
-
-  # Std fMRI
-  rois <- c('rPreSMA', 'rIFG', 'rCaudate', 'rSTN', 'rGPe', 'rGPi', 'rThalamus')
-  titles <- c('SST Go Weights', 'SST Stop Weights', 'SST Stop Respond Weights',
-              'SST Stop > Go Contrasts', 'SST Stop > Stop Respond Contrasts')
-  sfx <- c('_st_go','_go','_st')
-  for (i in 1:length(sfx)) {
-    std_fmri_feats <- paste(rois, sfx[i], sep = '')
-    print(ggpairs_wrap(data$raw[std_fmri_feats], title = 'fMRI GLM Weights'))
-  }
 
   # --------------------------------------------------------
   ###                          PCAs

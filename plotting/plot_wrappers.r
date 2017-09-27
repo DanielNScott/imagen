@@ -24,6 +24,19 @@ cor_wrapper <- function(data, features) {
 }
 # ------------------------------------------------------------------------------ #
 
+level_wrapper <- function(data, title, ylabel) {
+
+  ggplot(data, aes(x = Var1, y = Var2, z = value)) +
+    geom_tile(aes(fill = value)) +
+    geom_text(aes(label = round(value, 1)), color = 'orange', size = 7) +
+    scale_fill_gradientn(colours = viridis(10, option = 'viridis'), limits = c(-1,1)) +
+    ggtitle(title) + ylab(ylabel) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x  = element_blank(),
+          axis.ticks.x = element_blank())
+
+}
+
 
 # ------------------------------------------------------------------------------ #
 # Wrapper for density plots

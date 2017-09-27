@@ -7,13 +7,22 @@ source('./fmri/fmri_routines.r')
 source('./plotting/plot_wrappers.r')
 source('./plotting/plot_all.r')
 
+# Import the basic data
 data <- import_non_fmri('local')
-fmri <- readRDS('data/stats.rds')
-data$raw <- merge(data$raw, fmri, on = 'Subject', all = TRUE)
 
+# Import the standard fmri statistics
+fmri_std <- readRDS('data/std_stats.rds')
+data$raw <- merge(data$raw, fmri_std, on = 'Subject', all = TRUE)
+
+# Import the fmri ROI covariance stats
+fmri_cov <- readRDS('data/covariance_stats.rds')
+data$raw <- merge(data$raw, fmri_cov, on = 'Subject', all = TRUE)
+
+# Import Rob's data
 rob  <- import_rob_data('./data/rob_data.csv')
 data$raw <- merge(data$raw, rob, on = 'Subject')
 
+# Quality control and z-score stuff
 data <- gen_addnl_flds(data)
 data <- quality_control(data)
 
