@@ -228,16 +228,22 @@ setup_afni <- function(loc, subj_ids) {
 
 
 #-----------------------------------------------------------------------#
-read_stats_dump <- function(fname, ag) {
+read_stats_dump <- function(subj_dir, ag) {
+  fname     <- paste(subj_dir, 'stats_masked.out', sep = '')
   roi_stats <- read.table(fname, sep = ' ', header = FALSE, blank.lines.skip = FALSE)
-  paste_fun  <- function(x,y) {paste(x, y, sep = '_')}
-  str_outer  <- function(x,y) {as.vector(t(outer(x, y, paste_fun)))}
+  paste_fun <- function(x,y) {paste(x, y, sep = '_')}
+  str_outer <- function(x,y) {as.vector(t(outer(x, y, paste_fun)))}
 
   # In AG case, chop 9 off the end and 5 off the front, then find the F-stat
   #  on the basis of the trial-data later
   if (ag) {
-    n_stats   <- length(roi_stats)
-    roi_stats <- roi_stats[, setdiff(1:n_stats,  c(1:5, seq(n_stats, n_stats-8, -1)))]
+    censor_file <- paste(subj_dir, 'stats.rm.out.cen.1D', sep = '')
+    censor_list <- read.csv(censor_file)
+    n_stats     <- length(roi_stats)
+    keep_inds   <- setdiff(1:n_stats,  c(1:5, seq(n_stats, n_stats-8, -1)))
+    censor_list <- censor_list[keep_inds, ]
+    roi_stats   <- roi_stats[, keep_inds]
+    
     colnames(roi_stats) <- paste('stop_signal:', 1:dim(roi_stats)[2])
     return(roi_stats)
   }
@@ -296,7 +302,7 @@ read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
     subj_dir <- paste(afni_dir, subj_id_str, '_DATA/', sep = '')
 
     stats <- tryCatch({
-      stats <- read_stats_dump(paste(subj_dir, '/stats_masked.out', sep=''), ag)
+      stats <- read_stats_dump(subj_dir, ag)
     }, error = function(e){
       print(paste('Unable to read file stats for', subj_id_str))
       return(TRUE)
@@ -304,9 +310,15 @@ read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
     if (is.logical(stats)) {next}
 
     if (ag) {
-      stats <- t(stats)
+      stats   <- t(stats)
+      med     <- apply(stats, 2, median, na.rm = T)
+      mad_sd  <- 1.48*mad_est
+      mad_bnd <- rbind(med + 2*mad_sd, med - 2*mad_sd)
+      out_fn  <- function(x) {x > mad_bnd[1,] | x < mad_bnd[2,]}
+      out_msk <- t(apply(stats, 1, out_fn))
+      stats[out_msk] <- NA
       colnames(stats) <- rois
-      stats <- cov(stats)
+      stats <- var(stats, na.rm = T)
       dim(stats) <- NULL
       stats <- matrix(stats, ncol = 100)
       cond_names <- outer(rois, 1:length(rois), paste)

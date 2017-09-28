@@ -13,9 +13,15 @@ if ( $status ) then
     exit
 endif
 
+# Locate the 1D files, the masks, & the subject data
 set dir1D = 1Ds/
 set mask = ROI_masks/All_ROIs.nii.gz
 set dataFile = BL_SST.nii.gz
+
+# In case we're using amplitude modulation in regressors
+set IMTag = '_IM'
+set IMHRF = 'SPMG1'
+set statsTags = '' #'-fout -tout'
 
 # assign output directory name
 set output_dir = results
@@ -34,14 +40,11 @@ ln -s ../$dir1D
 ln -s ../ROI_masks
 ln -s ../$dataFile
 ln -s ../extract.sh
-ln -s ../deconvolve.sh
 
 # ============================ auto block: tcat ============================
 # apply 3dTcat to copy input dsets to results dir, while
 # removing the first 0 TRs
 3dTcat -prefix tcat BL_SST.nii.gz'[0..$]'
-
-# and make note of repetitions (TRs) per run
 
 # -------------------------------------------------------
 # enter the results directory (can begin processing data)
@@ -95,7 +98,8 @@ cat rm.out.cen.1D > outcount__censor.1D
        -expr "a*b" > censor__combined_2.1D
 
 # create bandpass regressors (instead of using 3dBandpass, say)
-#1dBport -nodata 444 2.2 -band 0.01 99999 -invert -nozero > bandpass_rall.1D
+#1dBport -nodata 444 2.2 -band 0.01 0.1 -invert -nozero > bandpass_rall.1D
+#-ortvec bandpass_rall.1D bpass         \
 
 # note TRs that were not censored
 set ktrs = `1d_tool.py -infile censor__combined_2.1D             \
@@ -107,20 +111,59 @@ set ktrs = `1d_tool.py -infile censor__combined_2.1D             \
 3dcalc -a 'despike+tlrc.HEAD' -b 'voxel_mean+tlrc.BRIK'    \
        -expr '100*a/b*ispositive(b-150)' -prefix prct_change
 
+#-ortvec bandpass_rall.1D bpass         \
+#3dmema - put roi mask instead of whole brain mask, but generally treat the roi as if it's the whole brain
 # ------------------------------
 # run the regression analysis
-sh deconvolve.sh ${mask} ${dir1D}
+3dDeconvolve -force_TR 2.2                          \
+             -TR_times 2.2                          \
+             -input prct_change+tlrc.HEAD           \
+             -polort 7                              \
+             -censor censor__combined_2.1D          \
+             -x1D_uncensored X.nocensor.xmat.1D     \
+             -mask ${mask}                          \
+             -local_times                           \
+             -allzero_OK                            \
+             -GOFORIT 3                             \
+             -num_stimts 13                         \
+             -stim_times 1 ${dir1D}go_success.1D              'SPMG3'   -stim_label 1 go_success    \
+             -stim_times${IMTag} 2 ${dir1D}stop_success.1D  "${IMHRF}"  -stim_label 2 stop_success  \
+             -stim_times${IMTag} 3 ${dir1D}stop_failure.1D  "${IMHRF}"  -stim_label 3 stop_failure  \
+             -stim_times 4 ${dir1D}go_failure.1D              'SPMG3'   -stim_label 4 go_failure    \
+             -stim_times 5 ${dir1D}go_too_late.1D             'SPMG3'   -stim_label 5 go_too_late   \
+             -stim_times 6 ${dir1D}go_wrong_key_response.1D   'SPMG3'   -stim_label 6 go_wrong_key  \
+             -stim_times 7 ${dir1D}stop_too_early_response.1D 'SPMG3'   -stim_label 7 go_too_early  \
+             -stim_file  8 ${dir1D}motion_demean.1D'[0]' -stim_base 8  -stim_label 8  roll  \
+             -stim_file  9 ${dir1D}motion_demean.1D'[1]' -stim_base 9  -stim_label 9  pitch \
+             -stim_file 10 ${dir1D}motion_demean.1D'[2]' -stim_base 10 -stim_label 10 yaw   \
+             -stim_file 11 ${dir1D}motion_demean.1D'[3]' -stim_base 11 -stim_label 11 dS    \
+             -stim_file 12 ${dir1D}motion_demean.1D'[4]' -stim_base 12 -stim_label 12 dL    \
+             -stim_file 13 ${dir1D}motion_demean.1D'[5]' -stim_base 13 -stim_label 13 dP    \
+             -num_glt 2                                 \
+             -glt_label 1 ss_go_diff                    \
+             -gltsym 'SYM: +stop_success -go_success'   \
+             -glt_label 2 ss_sf_diff                    \
+             -gltsym 'SYM: +stop_success -stop_failure' \
+             -fitts fitts.                              \
+             -errts errts.                              \
+             -x1D X.xmat.1D -xjpeg X.jpg                \
+             -bucket stats. ${statsTags}                \
+             -x1D_stop
 
 # Invoke REML fit
 3dREMLfit -matrix X.xmat.1D                      \
           -GOFORIT -input prct_change+tlrc.HEAD  \
-          -mask ${mask}        \
-          -Rbuck stats.subj_REML     \
+          -mask ${mask}                          \
+          -Rbuck stats.subj_REML  ${statsTags}   \
           -Rvar stats.subj_REMLvar               \
           -Rfitts fitts.subj_REML                \
           -Rerrts errts.subj_REML -verb $*
 
-sh extract.sh
+bash extract.sh
+
+3dToutcount -automask -fraction -polort 7 -legendre stats.subj_REML+tlrc.HEAD > stats.outcount.1D
+1deval -a stats.outcount.1D -expr "1-step(a-0.1)" > stats.rm.out.cen.1D
+cp stats.rm.out.cen.1D ../
 
 exit
 # -- use 3dTproject to project out regression matrix --
