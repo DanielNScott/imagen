@@ -1,4 +1,9 @@
 library(viridis)
+library(ggplot2)
+library(reshape2)
+library(GGally)
+library(ggthemr)
+ggthemr('fresh')
 
 # ------------------------------------------------------------------------------ #
 cor_wrapper <- function(data, features) {
@@ -24,33 +29,67 @@ cor_wrapper <- function(data, features) {
 }
 # ------------------------------------------------------------------------------ #
 
-level_wrapper <- function(data, title, ylabel) {
+# ------------------------------------------------------------------------------ #
+level_wrapper <- function(data, title, ylabel = '', legend = 'value') {
 
   ggplot(data, aes(x = Var1, y = Var2, z = value)) +
     geom_tile(aes(fill = value)) +
     geom_text(aes(label = round(value, 1)), color = 'orange', size = 7) +
     scale_fill_gradientn(colours = viridis(10, option = 'viridis'), limits = c(-1,1)) +
+    guides(fill = guide_legend(title = legend)) +
     ggtitle(title) + ylab(ylabel) +
     theme(axis.title.x = element_blank(),
           axis.text.x  = element_blank(),
           axis.ticks.x = element_blank())
 
 }
-
+# ------------------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------------------ #
 # Wrapper for density plots
 # ------------------------------------------------------------------------------ #
-density_wrapper <- function(data, names, title) {
+density_wrapper <- function(data, names, title, xlabel = NULL, ylabel = NULL, facet_labels = NULL) {
   library(ggplot2)
   library(reshape2)
 
-  ggplot( melt(data.frame(data$raw[names]), id.vars = NULL), aes(x = value)) +
-    facet_wrap(~variable, scales = "free") +
-    geom_histogram(na.rm = TRUE) +
-    ggtitle(title) # + theme_bw()
+  facet_labeller <- function(variable, value){
+    return(facet_labels[value])
+  }
+
+  plot <- ggplot( melt(data[names], id.vars = NULL), aes(x = value)) +
+    geom_density(na.rm = TRUE) +
+    xlab(xlabel) + ylab(ylabel) +
+    theme( strip.text = element_text(margin = margin(b = 20))) +
+    ggtitle(title)
+
+  if (!is.null(facet_labels)) {
+    plot <- plot + facet_wrap(~variable, scales = "free", labeller = facet_labeller)
+  } else {
+    plot <- plot + facet_wrap(~variable, scales = 'free')
+  }
+
+  print(plot)
+    # + theme_bw()
+  #theme(plot.title = element_text(vjust=1.5, face="bold", size = 20),
+    #      axis.title.x = element_blank(), axis.title.y = element_blank())
 }
 # ------------------------------------------------------------------------------ #
+
+#----
+bar_wrap <- function(data, colnames = NULL, title = NULL ){
+  #data <- data.frame(data, colnames)
+  #colnames(data) <- c('value', 'names')
+
+  plot <- ggplot(data, aes(x = names, y = mean)) +
+    geom_bar(stat = 'identity') +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    xlab('MID Model Term') + ylab('Regression Coefficient') +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), colour = 'black', width = 0.2) +
+    scale_x_discrete(labels = c('(Intercept)', 'Location','Baseline RT.','Var in Duration\nModulation','Var in Reward\nModulation')) +
+    ggtitle(title)
+  print(plot)
+}
+#----
 
 
 # ------------------------------------------------------------------------------ #
@@ -69,11 +108,16 @@ ggpairs_wrap <- function(data, title, names = NULL) {
 
 
 # ------------------------------------------------------------------------------ #
-cca_wrapper <- function(dset1, dset2, title1, title2, title3){
+cca_wrapper <- function(dset1, dset2, title1, title2, title3, subset = NULL,
+                        max_comp = NULL, yscale = NULL, flip = FALSE, xticks1 = NULL,
+                        xticks2 = NULL){
 
   # Setup:
   dset1_names <- colnames(dset1)
   dset2_names <- colnames(dset2)
+
+  if (is.null(max_comp)) {max_comp <- 3}
+  if (is.null(subset  )) {subset   <- 1:max_comp}
 
   library(CCA)
   #PMA::CCA(dset1, dset2)
@@ -88,35 +132,62 @@ cca_wrapper <- function(dset1, dset2, title1, title2, title3){
   ps <- p.asym(rho = cca_res$cor, n_obs, n_task_vars, n_survey_vars, tstat = "Wilks")
   nlines <- sum(ps$p.value < 0.05)
 
-  # Task PCA Plot:
-  plot <- ggplot(data.frame('index' = 1:length(cca_res$cor), 'value' = cca_res$cor), aes(x = index, y = value)) +
+  # Correlation Plot
+  plot <- ggplot(data.frame('index' = subset, 'value' = cca_res$cor[subset]), aes(x = index, y = value)) +
     geom_bar(stat = 'identity') + xlab('Canonical Covariate Index') + ylab('Correlation') +
     ggtitle(title1)
+
+  if (!is.null(yscale)) {plot <- plot + ylim(yscale)}
   print(plot)
 
+  # Setup for Canonical Covar U plot
   scale_fun <- function(x) {x*1/apply(apply(cca_res$xcoef, 2, abs ), 2, max)}
   scaled_xc <- apply(cca_res$xcoef, 1, scale_fun)
   scaled_xc <- cca_res$xcoef
+  if (flip) {scaled_xc <- -scaled_xc}
 
-  browser()
-  colnames(scaled_xc) <- c('Cov. 1', 'Cov. 2', 'Cov. 3')
-  plot <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value, fill = Var1)) +
-    geom_bar(stat = "identity", position = 'dodge') +
+  # Plot Canonical Covar U
+  if (is.null(xticks1)) {xticks1 <- colnames(dset1)}
+  colnames(scaled_xc) <- paste('Cov.', 1:dim(scaled_xc)[2], sep = '')
+  scaled_xc <- scaled_xc[,subset]
+  if (length(subset) > 1) {
+    plot <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value, fill = Var1))
+  } else {
+    plot <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value))
+  }
+  plot <- plot + geom_bar(stat = "identity", position = 'dodge') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    xlab('Feature') + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
+    xlab(NULL) + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
+    geom_hline(yintercept = 0) +
+    scale_x_discrete(labels = xticks1) +
     ggtitle(title2)
+
+  if (length(subset == 1)) {plot <- plot + theme(legend.position = "none")}
   print(plot)
 
+  # Setup for Canonical Covariate V
   scale_fun <- function(x) {x*1/apply(apply(cca_res$ycoef, 2, abs ), 2, max)}
   scaled_yc <- apply(cca_res$ycoef, 1, scale_fun)
   scaled_yc <- cca_res$ycoef
-  colnames(scaled_yc) <- c('Cov. 1', 'Cov. 2', 'Cov. 3', 'Cov. 4')
+  if (flip) {scaled_yc <- -scaled_yc}
+  colnames(scaled_yc) <- paste('Cov.', 1:dim(scaled_yc)[2], sep = '')
 
-  plot <- ggplot(data = melt(t(scaled_yc[,1:3])), aes(x = Var2, y = value, fill = Var1)) +
-    geom_bar(stat = "identity", position = 'dodge') +
+  # Plot Canonical Covariate V
+  if (is.null(xticks2)) {xticks2 <- colnames(dset2)}
+  scaled_yc <- scaled_yc[,subset]
+  if (length(subset) > 1) {
+    plot <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value, fill = Var1))
+  } else {
+    plot <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value))
+  }
+  plot <- plot + geom_bar(stat = "identity", position = 'dodge') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    xlab('Feature') + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
+    xlab(NULL) + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
+    geom_hline(yintercept = 0) +
+    scale_x_discrete(labels = xticks2) +
     ggtitle(title3)
+
+  if (length(subset == 1)) {plot <- plot + theme(legend.position = "none")}
   print(plot)
 
   print('P-values')
@@ -128,7 +199,7 @@ cca_wrapper <- function(dset1, dset2, title1, title2, title3){
 
 
 # ------------------------------------------------------------------------------ #
-pca_wrapper <- function(data, title, max_comp = NULL, subset = NULL) {
+pca_wrapper <- function(data, title, max_comp = NULL, subset = NULL, xticks = NULL) {
   cmpl <- complete.cases(data)
   data <- data[cmpl,]
 
@@ -137,6 +208,7 @@ pca_wrapper <- function(data, title, max_comp = NULL, subset = NULL) {
 
   if (is.null(max_comp)) {max_comp <- 3}
   if (is.null(subset  )) {subset   <- 1:max_comp}
+  if (is.null(xticks  )) {xticks   <- colnames(data)}
 
   # Task PCA Plot:
   plot <- ggplot(data.frame('index' = subset, 'value' = pca_pvar[subset]), aes(x = index, y = value)) +
@@ -147,7 +219,9 @@ pca_wrapper <- function(data, title, max_comp = NULL, subset = NULL) {
   plot <- ggplot(data = melt(t(pca_res$rotation[,subset])), aes(x = Var2, y = value, fill = Var1)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_x_discrete(labels = xticks) +
     xlab('Feature') + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
+
     ggtitle(title)
   print(plot)
 
