@@ -19,8 +19,8 @@ set mask = ROI_masks/All_ROIs.nii.gz
 set dataFile = BL_SST.nii.gz
 
 # In case we're using amplitude modulation in regressors
-set IMTag = '_IM'
-set IMHRF = 'SPMG1'
+set IMTag = ''
+set IMHRF = 'SPMG3'
 set statsTags = '' #'-fout -tout'
 
 # assign output directory name
