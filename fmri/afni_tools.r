@@ -194,12 +194,12 @@ setup_afni <- function(loc, subj_ids) {
 
     # Name subject directories, and write symlink commands
     proc_fname <- 'process_subj.sh'
-    wipe_fname <- 'wipe_results.sh'
+    #wipe_fname <- 'wipe_results.sh'
     link_cmd1  <- paste('ln -s ', afni_dir, proc_fname, ' ', subj_dir, '/', proc_fname, sep = '')
     link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
     link_cmd3  <- paste('ln -s ', move_full_name, ' ', subj_dir, '/1Ds/motion_demean.1D', sep = '')
     link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/BL_SST.nii.gz', sep = '')
-    link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/deconvolve.sh', sep = '')
+    #link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/deconvolve.sh', sep = '')
     link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
 
     # Execute all that
@@ -209,7 +209,7 @@ setup_afni <- function(loc, subj_ids) {
     system(link_cmd2)
     system(link_cmd3)
     system(link_cmd4)
-    system(link_cmd5)
+    #system(link_cmd5)
     system(link_cmd6)
 
     # Write regression files
@@ -243,7 +243,7 @@ read_stats_dump <- function(subj_dir, ag) {
     keep_inds   <- setdiff(1:n_stats,  c(1:5, seq(n_stats, n_stats-8, -1)))
     censor_list <- censor_list[keep_inds, ]
     roi_stats   <- roi_stats[, keep_inds]
-    
+
     colnames(roi_stats) <- paste('stop_signal:', 1:dim(roi_stats)[2])
     return(roi_stats)
   }
@@ -279,7 +279,7 @@ read_stats_dump <- function(subj_dir, ag) {
 read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
 
   rois <- c('rIFG', 'rPreSMA', 'rCaudate', 'rGPe', 'rGPi',
-            'rSTN', 'rThalamus', 'rNAcc', 'lACC', 'rACC')
+            'rSTN', 'rThalamus', 'rNAcc', 'rACC', 'lACC')
 
   # Conditions of interest:
   # Go Success, Stop Success, Stop Failure, contrasts
@@ -309,18 +309,19 @@ read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
     })
     if (is.logical(stats)) {next}
 
-    # 
+    #
     if (ag) {
       stats   <- t(stats)
 
       # Outlier removal based on Median-Absolute-Deviation
       med     <- apply(stats, 2, median, na.rm = T)
+      mad_est <- apply(stats, 2, mad,    na.rm = T)
       mad_sd  <- 1.48*mad_est
       mad_bnd <- rbind(med + 2*mad_sd, med - 2*mad_sd)
       out_fn  <- function(x) {x > mad_bnd[1,] | x < mad_bnd[2,]}
       out_msk <- t(apply(stats, 1, out_fn))
       stats[out_msk] <- NA
-      
+
       # Convert betas to covariance matrices
       colnames(stats) <- rois
       stats <- var(stats, na.rm = T)
