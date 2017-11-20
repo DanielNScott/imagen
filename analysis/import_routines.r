@@ -3,34 +3,47 @@
 # ------------------------------------------------------------------------------ #
 read_sst_param_file <- function(filename){
 
-  # Read the parameter file
-  flog.info('Reading SST params from file: %s', filename)
-  raw <- read.csv(file = filename, header = TRUE, sep = ';');
+  fname <- filename
+  stack <- data.frame()
+  for (chain_num in 1:3) {
+    # Ugly hack - insert chain num into filename - but I'm in a hurry...
+    fname <- paste(strsplit(filename, '.csv')[[1]], '_', chain_num, '.csv', sep = '')
 
-  # Determine params being read and subject numbers
-  regex <- paste('*_subj.*', sep = '')
-  param_names <- grep(glob2rx(regex), names(raw), value = TRUE)
-  subject_ids <- sort(strtoi(unique( gsub('.+_subj.', '', param_names) )))
+    # Read the parameter file
+    flog.info('Reading SST params from file: %s', fname)
+    raw <- read.csv(file = fname, header = TRUE, sep = ';');
 
-  # Strip subj nums
-  param_names <- unique(gsub('subj.+', 'subj', param_names))
-  flog.info('SST params identified: %s', toString(param_names))
+    # Determine params being read and subject numbers
+    regex       <- paste('*_subj.*', sep = '')
+    param_names <- grep(glob2rx(regex), names(raw), value = TRUE)
+    subject_ids <- sort(strtoi(unique( gsub('.+_subj.', '', param_names) )))
 
-  # Set up the dataframe to accept mean parameter values.
-  n_subj   <- max(subject_ids)
-  n_params <- length(param_names)
-  data     <- data.frame(matrix(ncol = n_params, nrow = n_subj))
-  colnames(data) <- param_names
+    # Strip subj nums
+    param_names <- unique(gsub('subj.+', 'subj', param_names))
+    flog.info('SST params identified: %s', toString(param_names))
 
-  # Get mean chain values for each param
-  trace_means <- colMeans(raw[2000:3000,])
+    # Set up the dataframe to accept mean parameter values.
+    n_subj   <- 198                 # This is a temporary hack
+    #n_subj  <- max(subject_ids)    # This does not work for 18 yo data bc subject 198 is missing in at least one set.
+    n_params <- length(param_names)
+    data     <- data.frame(matrix(ncol = n_params, nrow = n_subj))
+    colnames(data) <- param_names
+
+    # Get mean chain values for each param
+    #trace_avg <- colMeans(raw)
+    n_samples <- dim(raw)[1]
+    trace_avg <- apply(raw[(n_samples - 1000):n_samples,], 2, median, na.rm = T)
+
+    stack <- rbind(stack, t(data.frame(trace_avg)))
+  }
+  trace_avg <- colMeans(stack)
 
   # Save the parameters:
   for (subj_num in subject_ids) {
     #flog.info('Reading params for subject num: %d', subj_num)
     for (param in param_names) {
       long_name <- paste(param, '.', subj_num, sep = '')
-      data[subj_num, param] <- trace_means[long_name]
+      data[subj_num, param] <- trace_avg[long_name]
     }
   }
 
@@ -127,11 +140,12 @@ import_generic <- function(data_file, subj_ids){
 
   # Read the dosages
   flog.info('Reading generic file: %s', data_file)
-  tryCatch({
+  result <- tryCatch({
     raw <- data.frame( read.csv(file = data_file, header = TRUE) );
   }, error = function(e) {
     print(paste('Unable to read file ', data_file, '... does it exist?'))
   })
+  if (is.character(result)) {return(NULL)}
 
   # Subset the gene data for dopamine genes and the appropriate subjects
   raw <- raw[raw$Subject %in% subj_ids$Subject, ]
@@ -320,15 +334,17 @@ import_non_fmri <- function(loc, time = 'BL'){
   data$raw <- merge(data$raw, gene_data, by = "Subject", all = TRUE)
   data$names$genes <- setdiff(colnames(gene_data), c('Subject'))
 
-
   ### ---------------------- ###
   ###   Other Instruments    ###
   ### ---------------------- ###
-  file_list <- c(fnamify('DelayDiscounting_K'), fnamify('ESPAD_Life'), fnamify('CANTAB'), fnamify('Age_IQ_Etc'),
+  file_list <- c(fnamify('Age_IQ_Etc'), fnamify('DelayDiscounting_K'), fnamify('ESPAD_Life'), fnamify('CANTAB'),
                  fnamify('SURPS'), fnamify('DAWBA_SDQ'), fnamify('TCI'), fnamify('Misc'), fnamify('NEO'))
   for (file in file_list) {
     file_to_import <- paste(base_dir, file, sep = '')
     file_data <- import_generic(file_to_import, data$subj_list)
+
+    # If there was a failure, move on.
+    if (is.null(file_data)) {next}
 
     # Match rows by 'Subject' column
     data$raw <- merge(data$raw, file_data$raw, by = "Subject", all = TRUE)
@@ -345,26 +361,27 @@ import_non_fmri <- function(loc, time = 'BL'){
 # ------------------------------------------------------------------------------ #
 #             Generate some additional fields (i.e. feature construction)        #
 # ------------------------------------------------------------------------------ #
-gen_addnl_flds <- function(data) {
+gen_addnl_flds <- function(data, skip_tci = FALSE) {
 
-  # TCI impulsivity really looks like it falls into categories 'general' and 'financial' to me...
-  # Also, it looks like taking rowSums is fine -- the summary vars get NAs if there are NAs in row.
-  tci_gen_imp <- c('tci010', 'tci014', 'tci047', 'tci071', 'tci102', 'tci123', 'tci193', 'tci210')
-  tci_fin_imp <- c('tci024', 'tci059', 'tci105', 'tci215')
-  tci_excite  <- c('tci001', 'tci063', 'tci053', 'tci104', 'tci122', 'tci145', 'tci156', 'tci165', 'tci176', 'tci205')
-  tci_extrav  <- c('tci014', 'tci024', 'tci059', 'tci105', 'tci139', 'tci155', 'tci172', 'tci215', 'tci222')
-  tci_disord  <- c('tci044', 'tci051', 'tci077', 'tci109', 'tci135', 'tci159', 'tci170')
-  tci_nov     <- c(tci_excite, tci_disord)
+  if (!skip_tci) {
+    # TCI impulsivity really looks like it falls into categories 'general' and 'financial' to me...
+    # Also, it looks like taking rowSums is fine -- the summary vars get NAs if there are NAs in row.
+    tci_gen_imp <- c('tci010', 'tci014', 'tci047', 'tci071', 'tci102', 'tci123', 'tci193', 'tci210')
+    tci_fin_imp <- c('tci024', 'tci059', 'tci105', 'tci215')
+    tci_excite  <- c('tci001', 'tci063', 'tci053', 'tci104', 'tci122', 'tci145', 'tci156', 'tci165', 'tci176', 'tci205')
+    tci_extrav  <- c('tci014', 'tci024', 'tci059', 'tci105', 'tci139', 'tci155', 'tci172', 'tci215', 'tci222')
+    tci_disord  <- c('tci044', 'tci051', 'tci077', 'tci109', 'tci135', 'tci159', 'tci170')
+    tci_nov     <- c(tci_excite, tci_disord)
 
-  data$raw['tci_gen_imp'] <- rowSums(data$raw[, tci_gen_imp])
-  data$raw['tci_fin_imp'] <- rowSums(data$raw[, tci_fin_imp])
-  data$raw['tci_excite' ] <- rowSums(data$raw[, tci_excite])
-  data$raw['tci_extrav' ] <- rowSums(data$raw[, tci_extrav])
-  data$raw['tci_disord' ] <- rowSums(data$raw[, tci_disord])
-  data$raw['tci_nov'    ] <- rowSums(data$raw[, tci_nov])
+    data$raw['tci_gen_imp'] <- rowSums(data$raw[, tci_gen_imp])
+    data$raw['tci_fin_imp'] <- rowSums(data$raw[, tci_fin_imp])
+    data$raw['tci_excite' ] <- rowSums(data$raw[, tci_excite])
+    data$raw['tci_extrav' ] <- rowSums(data$raw[, tci_extrav])
+    data$raw['tci_disord' ] <- rowSums(data$raw[, tci_disord])
+    data$raw['tci_nov'    ] <- rowSums(data$raw[, tci_nov])
 
-  data$names$TCI <- c(data$names$TCI, 'tci_gen_imp', 'tci_fin_imp', 'tci_excite', 'tci_extrav', 'tci_disord', 'tci_nov')
-
+    data$names$TCI <- c(data$names$TCI, 'tci_gen_imp', 'tci_fin_imp', 'tci_excite', 'tci_extrav', 'tci_disord', 'tci_nov')
+  }
 
   # NEO Items...
   neo_neuroti <- c('neoffi1', 'neoffi6', 'neoffi11', 'neoffi16', 'neoffi21', 'neoffi26', 'neoffi31', 'neoffi36', 'neoffi41', 'neoffi46', 'neoffi51', 'neoffi56')
@@ -409,10 +426,17 @@ gen_addnl_flds <- function(data) {
   data$raw$GoRT <- data$raw$mu_go   + data$raw$tau_go
   data$raw$SSRT <- data$raw$mu_stop + data$raw$tau_stop
 
-  data$raw$GoRTVar <- data$raw$sigma_go^2   + data$raw$tau_go^2
-  data$raw$SSRTVar <- data$raw$sigma_stop^2 + data$raw$tau_stop^2
+  data$raw$GoRTSd <- sqrt(data$raw$sigma_go^2   + data$raw$tau_go^2)
+  data$raw$SSRTSd <- sqrt(data$raw$sigma_stop^2 + data$raw$tau_stop^2)
 
-  data$names$sst <- c(data$names$sst, 'GoRT', 'SSRT', 'GoRTVar', 'SSRTVar')
+  data$names$sst <- c(data$names$sst, 'GoRT', 'SSRT', 'GoRTSd', 'SSRTSd')
+
+  # Construct some meaningful MID parameters
+  data$raw$mid_RT_ar  <- 1/(data$raw$mid_int + data$raw$mid_rew)       - 1/(data$raw$mid_int)
+  data$raw$mid_RT_hr  <- 1/(data$raw$mid_int + data$raw$mid_high_rew)  - 1/(data$raw$mid_int)
+  data$raw$mid_RT_var <- 1/(data$raw$mid_int - data$raw$mid_tau_stdev) - 1/(data$raw$mid_int + data$raw$mid_tau_stdev)
+
+  data$names$mid <- c(data$names$mid, 'mid_RT_ar', 'mid_RT_hr', 'mid_RT_var')
 
   return(data)
 }
@@ -499,3 +523,22 @@ attach_ag_results <- function(data, base_dir){
 }
 # ------------------------------------------------------------------------------ #
 
+# ------------------------------------------------------------------------------ #
+# ------------------------------------------------------------------------------ #
+append_to_data_names <- function(data, suffix) {
+
+  # Change the index sets' keys
+  for (set in names(data$names)) {
+    data$names[set][[1]] <- paste(data$names[set][[1]], suffix, sep = '')
+  }
+
+  # Change the names in the actual data
+  colnames(data$raw) <- paste(colnames(data$raw), suffix, sep = '')
+
+  # Put 'Subject' and 'set' back as they should be. Inefficient but who cares.
+  colnames(data$raw)[grep(paste('Subject', '', sep = ''), colnames(data$raw))] <- 'Subject'
+  colnames(data$raw)[grep(paste('set'    , '', sep = ''), colnames(data$raw))] <- 'set'
+
+  return(data)
+}
+# ------------------------------------------------------------------------------ #

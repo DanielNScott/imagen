@@ -3,6 +3,10 @@ library(ggplot2)
 library(reshape2)
 library(GGally)
 library(ggthemr)
+library(ggpubr)
+
+# Apply ggplot theme.
+# Other good themes: flat, light, pale, solarized
 ggthemr('fresh')
 
 # ------------------------------------------------------------------------------ #
@@ -75,21 +79,26 @@ density_wrapper <- function(data, names, title, xlabel = NULL, ylabel = NULL, fa
 }
 # ------------------------------------------------------------------------------ #
 
-#----
-bar_wrap <- function(data, colnames = NULL, title = NULL ){
-  #data <- data.frame(data, colnames)
-  #colnames(data) <- c('value', 'names')
+# ------------------------------------------------------------------------------ #
+bar_wrap <- function(data, title = NULL, xlabel = NULL, ylabel = NULL, cnames = NULL ){
+  # Takes a linear model summary$coefficients data.frame
+  if (!is.null(cnames)) {
+    colnames(data) <- cnames
+  } else {
+    colnames(data) <- c('mean', 'se')
+  }
+  data <- data.frame(data)
 
-  plot <- ggplot(data, aes(x = names, y = mean)) +
-    geom_bar(stat = 'identity') +
+  plot <- ggplot(data, aes(x = rownames(data), y = mean)) +
+    geom_col() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    xlab('MID Model Term') + ylab('Regression Coefficient') +
+    xlab(xlabel) + ylab(ylabel) +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), colour = 'black', width = 0.2) +
-    scale_x_discrete(labels = c('(Intercept)', 'Location','Baseline RT.','Var in Duration\nModulation','Var in Reward\nModulation')) +
     ggtitle(title)
-  print(plot)
+
+  return(plot)
 }
-#----
+# ------------------------------------------------------------------------------ #
 
 
 # ------------------------------------------------------------------------------ #
@@ -108,20 +117,28 @@ ggpairs_wrap <- function(data, title, names = NULL) {
 
 
 # ------------------------------------------------------------------------------ #
+qq_wrap <- function(data, xfeat, yfeat, title, names = NULL) {
+
+  plot <- ggplot(data$raw[c(xfeat, yfeat)], aes_q(as.name(xfeat), as.name(yfeat))) +
+    geom_point(shape = 1) +
+    geom_abline(slope = 1, intercept = 0, colour = '#E41A1C') +
+    ggtitle(title)
+
+  print(plot)
+}
+# ------------------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------------------ #
 cca_wrapper <- function(dset1, dset2, title1, title2, title3, subset = NULL,
-                        max_comp = NULL, yscale = NULL, flip = FALSE, xticks1 = NULL,
-                        xticks2 = NULL){
+                        yscale = NULL, flip = FALSE, xticks1 = NULL, xticks2 = NULL,
+                        seperate = FALSE){
 
   # Setup:
   dset1_names <- colnames(dset1)
   dset2_names <- colnames(dset2)
 
-  if (is.null(max_comp)) {max_comp <- 3}
-  if (is.null(subset  )) {subset   <- 1:max_comp}
-
   library(CCA)
-  #PMA::CCA(dset1, dset2)
-  #browser()
   cca_res <- cancor(dset1, dset2)
 
   library(CCP)
@@ -131,14 +148,16 @@ cca_wrapper <- function(dset1, dset2, title1, title2, title3, subset = NULL,
 
   ps <- p.asym(rho = cca_res$cor, n_obs, n_task_vars, n_survey_vars, tstat = "Wilks")
   nlines <- sum(ps$p.value < 0.05)
+  if (is.null(subset)) {subset <- 1:max(nlines,1)}
 
   # Correlation Plot
-  plot <- ggplot(data.frame('index' = subset, 'value' = cca_res$cor[subset]), aes(x = index, y = value)) +
-    geom_bar(stat = 'identity') + xlab('Canonical Covariate Index') + ylab('Correlation') +
+  plot1 <- ggplot(data.frame('index' = subset, 'value' = cca_res$cor[subset]),
+                 aes(x = index, y = value, fill = factor(subset))) +
+    geom_bar(stat = 'identity') + xlab('Covariate Index') + ylab('Correlation') +
+    guides(fill = guide_legend(title = NULL)) +
     ggtitle(title1)
-
-  if (!is.null(yscale)) {plot <- plot + ylim(yscale)}
-  print(plot)
+  if (length(subset == 1)) {plot1 <- plot1 + theme(legend.position = "none")}
+  if (!is.null(yscale)) {plot1 <- plot1 + ylim(yscale)}
 
   # Setup for Canonical Covar U plot
   scale_fun <- function(x) {x*1/apply(apply(cca_res$xcoef, 2, abs ), 2, max)}
@@ -151,19 +170,18 @@ cca_wrapper <- function(dset1, dset2, title1, title2, title3, subset = NULL,
   colnames(scaled_xc) <- paste('Cov.', 1:dim(scaled_xc)[2], sep = '')
   scaled_xc <- scaled_xc[,subset]
   if (length(subset) > 1) {
-    plot <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value, fill = Var1))
+    plot2 <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value, fill = Var1))
   } else {
-    plot <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value))
+    plot2 <- ggplot(data = melt(t(scaled_xc)), aes(x = Var2, y = value))
   }
-  plot <- plot + geom_bar(stat = "identity", position = 'dodge') +
+  plot2 <- plot2 + geom_bar(stat = "identity", position = 'dodge') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab(NULL) + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
     geom_hline(yintercept = 0) +
     scale_x_discrete(labels = xticks1) +
     ggtitle(title2)
 
-  if (length(subset == 1)) {plot <- plot + theme(legend.position = "none")}
-  print(plot)
+  if (length(subset == 1)) {plot2 <- plot2 + theme(legend.position = "none")}
 
   # Setup for Canonical Covariate V
   scale_fun <- function(x) {x*1/apply(apply(cca_res$ycoef, 2, abs ), 2, max)}
@@ -176,22 +194,44 @@ cca_wrapper <- function(dset1, dset2, title1, title2, title3, subset = NULL,
   if (is.null(xticks2)) {xticks2 <- colnames(dset2)}
   scaled_yc <- scaled_yc[,subset]
   if (length(subset) > 1) {
-    plot <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value, fill = Var1))
+    plot3 <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value, fill = Var1))
   } else {
-    plot <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value))
+    plot3 <- ggplot(data = melt(t(scaled_yc)), aes(x = Var2, y = value))
   }
-  plot <- plot + geom_bar(stat = "identity", position = 'dodge') +
+  plot3 <- plot3 + geom_bar(stat = "identity", position = 'dodge') +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     xlab(NULL) + ylab('Weight') + guides(fill = guide_legend(title = NULL)) +
     geom_hline(yintercept = 0) +
     scale_x_discrete(labels = xticks2) +
     ggtitle(title3)
 
-  if (length(subset == 1)) {plot <- plot + theme(legend.position = "none")}
-  print(plot)
+  if (length(subset == 1)) {plot3 <- plot3 + theme(legend.position = "none")}
 
   print('P-values')
   print(ps$p.value[1:nlines])
+
+  if (seperate){
+    print(plot1)
+    print(plot2)
+    print(plot3)
+  } else {
+    library('cowplot')
+    all <- ggdraw() +
+      draw_plot(plot1, x = 0   , y = 0  , width = 0.25, height = 1) +
+      draw_plot(plot2, x = 0.25, y = 0.5, width = 0.75, height = 0.5) +
+      draw_plot(plot3, x = 0.25, y = 0  , width = 0.75, height = 0.5) #+
+      #draw_plot_label(label = c("A", "B", "C"), size = 15,
+      #                x = c(0, 0.5, 0), y = c(1, 1, 0.5))
+    print(all)
+  }
+
+  sparse_res <- PMA::CCA(dset1, dset2)
+  print('Sparse U:')
+  print(t(sparse_res$u))
+  print('Sparse V:')
+  print(t(sparse_res$v))
+  print('Sparse Correlation:')
+  print(sparse_res$cor)
 
   return(cca_res)
 }

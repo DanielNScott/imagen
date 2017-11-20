@@ -7,8 +7,10 @@ misc_transforms <- function(data) {
   # data$raw['Age'] <- data$raw['Age']*365.24
 
   # Gender and Sex are factors
-  data$raw$Gender.x <- as.integer(data$raw$Gender.x)
-  data$raw$Sex      <- as.integer(data$raw$Sex)
+  try({
+    data$raw$Gender.x <- as.integer(data$raw$Gender.x)
+    data$raw$Sex      <- as.integer(data$raw$Sex)
+  })
 
   # -1 is a no-data code... I think?
   data$raw[data$raw == -1] <- NA
@@ -85,6 +87,7 @@ remove_outliers <- function(data, ignore, thresh) {
     stdev <- apply(var, 2, sd    , na.rm = TRUE)
     dmed  <- apply(var, 2, median, na.rm = TRUE)
     #dmean<- apply(var, 2, mean  , na.rm = TRUE)
+    if (!is.numeric(dmed) ) {print(paste('Feature "', feature, '" has non-numeric value: ', dmed, sep = ''))}
 
     outmsk <- apply(var, 2, (function(x) ifelse(abs(dmed - x) < thresh*stdev | is.na(x) ,FALSE ,TRUE)))
 

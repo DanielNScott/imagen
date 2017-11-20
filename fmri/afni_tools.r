@@ -278,11 +278,11 @@ read_stats_dump <- function(subj_dir, ag) {
 #-----------------------------------------------------------------------#
 read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
 
-  #roi_mask_names <- c('L_AAL_ACC', 'R_AAL_ACC', 'R_Caudate_AAL',
-  #                     'R_GPe', 'R_GPi', 'R_IFG', 'R_NAcc', 'R_preSMA',
-  #                     'R_STN', 'R_Thalamus_AAL')
   rois <- c('rIFG', 'rPreSMA', 'rCaudate', 'rGPe', 'rGPi',
             'rSTN', 'rThalamus', 'rNAcc', 'lACC', 'rACC')
+
+  # Conditions of interest:
+  # Go Success, Stop Success, Stop Failure, contrasts
   cois <- c('gs_hrf_beta', 'ss_hrf_beta', 'sf_hrf_beta', 'ss_go_beta', 'ss_sf_beta')
   cond <- c('go', 'st', 'sr', 'st_go', 'st_sr')
 
@@ -309,30 +309,38 @@ read_all_stats <- function(subj_ids, afni_dir, ag = FALSE) {
     })
     if (is.logical(stats)) {next}
 
+    # 
     if (ag) {
       stats   <- t(stats)
+
+      # Outlier removal based on Median-Absolute-Deviation
       med     <- apply(stats, 2, median, na.rm = T)
       mad_sd  <- 1.48*mad_est
       mad_bnd <- rbind(med + 2*mad_sd, med - 2*mad_sd)
       out_fn  <- function(x) {x > mad_bnd[1,] | x < mad_bnd[2,]}
       out_msk <- t(apply(stats, 1, out_fn))
       stats[out_msk] <- NA
+      
+      # Convert betas to covariance matrices
       colnames(stats) <- rois
       stats <- var(stats, na.rm = T)
       dim(stats) <- NULL
-      stats <- matrix(stats, ncol = 100)
+      stats <- matrix(stats, ncol = length(rois)^2)
+
+      # Sort out proper names
       cond_names <- outer(rois, 1:length(rois), paste)
       colnames(stats) <- cond_names
+
+      # Agglomerate stuff
       cond_frame <- data.frame('Subject' = subj_id, stats)
       if (merge_in) {
         results <- merge(results, cond_frame, by = 'Subject')
       } else {
         results <- rbind(results, cond_frame)
-        #row_indices <- match(subj_id, results[['Subject']])
-        #results[cond_names][row_indices, ] <- cond_frame[cond_names]
       }
     } else {
 
+      # Collect subject data
       mean_betas <- stats[cois,]
       colnames(mean_betas) <- rois
       for (cnum in 1:length(cois)) {

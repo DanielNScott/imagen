@@ -20,7 +20,7 @@ ipdb.set_trace()
 def main():
 
   # Files to read and their location:
-  path = '/home/dan/documents/lncc/From Catherine/Round 2/Exported CSVs/'
+  path = '/home/dan/documents/lncc/Recieved/Round 2/Exported CSVs/'
   file_list = ['SST_Groups_BSL_14.csv',
                'CANTAB_14.csv',
                'CANTAB_18.csv',
