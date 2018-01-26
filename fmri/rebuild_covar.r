@@ -1,4 +1,3 @@
-
 rebuild_covar <- function(fmri_cov, subj_num, roi_nums){
   # Covariance matrices
   roi_nums <- c(2,3,5,6)

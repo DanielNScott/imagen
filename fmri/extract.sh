@@ -4,7 +4,7 @@
 rm stats_masked.out L_* R_*
 
 # Cycle through ROIs and fit GLM
-rois=( R_IFG R_preSMA R_Caudate_AAL R_GPe R_GPi R_STN R_Thalamus_AAL R_NAcc R_AAL_ACC L_AAL_ACC )
+rois=(R_IFG R_preSMA R_Caudate_AAL R_GPe R_GPi R_STN R_Thalamus_AAL R_NAcc R_AAL_ACC L_AAL_ACC)
 for mask in "${rois[@]}"
 do
   echo "#--------------------------------------------------------------------#"
@@ -19,5 +19,14 @@ do
   printf '\n' >> stats_masked.out
 
 done
+
+mv stats_masked.out stats_masked.out.bckp
+
+# Remove the pesky F-statistic in the middle of the stop-condition block...
+3dinfo -verb stats.subj_REML+tlrc.HEAD > 3dinfo.txt
+badCol=`grep 'stop_success_Fstat' 3dinfo.txt | cut -d ' ' -f 6 | tr '#' ' '`
+let "badCol=${badCol}+1"
+cut -d ' ' -f ${badCol} stats_masked.out.bckp --complement > stats_masked.out
+
 cp stats_masked.out ../
 #EOF
