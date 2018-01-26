@@ -28,10 +28,14 @@ data$raw <- merge(data$raw, rob, on = 'Subject')
 data <- gen_addnl_flds(data)
 data <- quality_control(data)
 
-stop("You don't want to process the 18 yo data now, do you?")
+#stop("You don't want to process the 18 yo data now, do you?")
 #---------------- Do Everything For Age 18 Data ---------------#
 # Import the basic data
 data_18 <- import_non_fmri('local', time = 'FU2')
+
+# Import the standard fmri statistics
+fmri_std_18 <- readRDS('data/fmri_stats_SST_FU2.rds')
+data_18$raw <- merge(data_18$raw, fmri_std_18, on = 'Subject', all = TRUE)
 
 # Quality control and z-score stuff
 data_18 <- gen_addnl_flds(data_18, skip_tci = TRUE)
@@ -55,7 +59,6 @@ data$names    <- names
 
 # Get that memory back!
 rm(data_18)
-
 
 #--------------------------------------------------------------#
 #data <- import_fmri('local', data, 1, 396, process_fmri = FALSE)

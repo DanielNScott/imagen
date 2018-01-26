@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------ #
-#                Subroutine for reading the SST parameters
-# ------------------------------------------------------------------------------ #
 read_sst_param_file <- function(filename){
+  # A subroutine for reading the sst parameter traces and turning extracting
+  # point estimates for use in the rest of the analysis.
 
   fname <- filename
   stack <- data.frame()
@@ -54,7 +54,36 @@ read_sst_param_file <- function(filename){
 }
 # ------------------------------------------------------------------------------ #
 
+
 # ------------------------------------------------------------------------------ #
+read_raw_sst_file <- function(filename){
+  # A subroutine for reading the raw sst data and extracting
+  # point estimates for use in the rest of the analysis.
+
+  # Read the parameter file
+  flog.info('Reading SST params from file: %s', filename)
+  raw <- read.csv(file = filename, header = TRUE, sep = ',');
+
+  # Set up the dataframe to accept mean parameter values.
+  n_subj <- 198                 # This is a temporary hack
+  data   <- data.frame(matrix(ncol = 3, nrow = n_subj))
+  colnames(data) <- c('raw_go_rt', 'raw_go_sd', 'raw_ssrt')
+
+  # Save the parameters:
+  for (subj_num in unique(raw[['subj_idx']])) {
+    subj_rows <- raw['subj_idx'] == subj_num
+    go_rows   <- raw['ss_presented'] == 0
+
+    data[subj_num, 'raw_go_rt'] <- mean(raw[subj_rows & go_rows, 'rt'], na.rm = TRUE)
+    data[subj_num, 'raw_go_sd'] <- sd(  raw[subj_rows & go_rows, 'rt'], na.rm = TRUE)
+    data[subj_num, 'raw_ssrt' ] <- median(raw[subj_rows & go_rows,'rt']) - mean(raw[subj_rows & !go_rows,'ssd'])
+  }
+
+  return(data)
+}
+# ------------------------------------------------------------------------------ #
+
+
 # ------------------------------------------------------------------------------ #
 import_rob_data <- function(filename) {
   # Read...
@@ -75,9 +104,8 @@ import_rob_data <- function(filename) {
 
 
 # ------------------------------------------------------------------------------ #
-#                Subroutine for reading the MID parameters
-# ------------------------------------------------------------------------------ #
 read_mid_param_file <- function(filename){
+  # A subroutine for reading the MID analysis outputs
 
   mid_params_raw  <- read.csv(file = filename, header = TRUE, sep = ',');
 
@@ -108,8 +136,6 @@ read_mid_param_file <- function(filename){
 # ------------------------------------------------------------------------------ #
 
 
-# ------------------------------------------------------------------------------ #
-#                Subroutine for reading the genetic data
 # ------------------------------------------------------------------------------ #
 import_genes <- function(dose_file, rs_file, subj_ids){
 
@@ -154,6 +180,19 @@ import_generic <- function(data_file, subj_ids){
   names <- list()
   subset_name <- gsub( '.+/', '', gsub('_.+', '', data_file) )
   names[subset_name] <- list(setdiff(colnames(raw), c('Subject', 'Gender')))
+
+  # To do: check for and remove duplicated subject rows:
+  duplicate           <- duplicated(raw$Subject)
+  duplicated_subjects <- raw$Subject[duplicate]
+  all_appearances     <- sapply(raw$Subject, function(x) any(x == duplicated_subjects))
+
+  if (any(all_appearances)) {
+    print('Multiple rows exist for some subjects. Instances of a subject after the first appearance')
+    print('below will be dropped. Review this for accuracy.')
+    print(raw[all_appearances,])
+
+    raw <- raw[!duplicate,]
+  }
 
   data$raw   <- raw
   data$names <- names
@@ -263,7 +302,7 @@ import_non_fmri <- function(loc, time = 'BL'){
   fnamify <- function(x) {paste(x, age_sfx, sep = '')}
 
   # Sandbox' subjects are training set once analyses pipeline is done
-  sbx_subj_list <- paste(base_dir, 'sandbox_subject_list.csv', sep = '')
+  sbx_subj_list <- paste(base_dir, 'protected/sandbox_subject_list.csv', sep = '')
 
   # Read subject list & demarcate test/training split
   data <- c()
@@ -278,7 +317,7 @@ import_non_fmri <- function(loc, time = 'BL'){
   ### SST AND MID PARAMETERS ###
   ### ---------------------- ###
   # Files to read
-  sst_params_files <- paste(base_dir, c(fnamify('test_parameters'), fnamify('train_parameters')), sep = '')
+  sst_params_files <- paste(base_dir, c(fnamify('model fits/test_parameters'), fnamify('model fits/train_parameters')), sep = '')
 
   # Read the SST parameters files
   # Test partition
@@ -296,6 +335,28 @@ import_non_fmri <- function(loc, time = 'BL'){
   sst_data <- rbind( cbind(subj_ids_1, sst_params_1), cbind(subj_ids_2, sst_params_2))
   data$raw <- merge(data$raw, sst_data, by = "Subject", all = TRUE)
   data$names$sst <- setdiff(colnames(sst_params_1), c('Subject'))
+
+
+  ############################ Hack! #################################
+  # Read the raw SST files
+  # Test partition
+  #subj_ids_1   <- as.matrix(data$subj_list[data$test_inds, 'Subject'])
+  #sst_params_1 <- read_raw_sst_file(paste(base_dir, 'raw_sst_data_test_14.csv', sep = ''))
+  #colnames(subj_ids_1) <- 'Subject'
+
+  # Training partition
+  #subj_ids_2   <- as.matrix(data$subj_list[data$train_inds, 'Subject'])
+  #sst_params_2 <- read_raw_sst_file(paste(base_dir, 'raw_sst_data_train_14.csv', sep = ''))
+  #colnames(subj_ids_2) <- 'Subject'
+
+  # Package into an data matrix
+  # Columns are in different orders, but row bind matches on them.
+  #sst_data <- rbind( cbind(subj_ids_1, sst_params_1), cbind(subj_ids_2, sst_params_2))
+  #data$raw <- merge(data$raw, sst_data, by = "Subject", all = TRUE)
+  #data$names$raw_sst <- setdiff(colnames(sst_params_1), c('Subject'))
+  #####################################################################
+
+
 
   # Read the MID fit file in:
   mid_params_file  <- paste(base_dir, fnamify('MIDT_SubjectFits_All'), sep = '')
@@ -337,8 +398,8 @@ import_non_fmri <- function(loc, time = 'BL'){
   ### ---------------------- ###
   ###   Other Instruments    ###
   ### ---------------------- ###
-  file_list <- c(fnamify('Age_IQ_Etc'), fnamify('DelayDiscounting_K'), fnamify('ESPAD_Life'), fnamify('CANTAB'),
-                 fnamify('SURPS'), fnamify('DAWBA_SDQ'), fnamify('TCI'), fnamify('Misc'), fnamify('NEO'))
+  file_list <- c(fnamify('measures/Age_IQ_Etc'), fnamify('measures/DelayDiscounting_K'), fnamify('measures/ESPAD_Life'), fnamify('measures/CANTAB'),
+                 fnamify('measures/SURPS'), fnamify('measures/DAWBA_SDQ'), fnamify('measures/TCI'), fnamify('measures/Misc'), fnamify('measures/NEO'))
   for (file in file_list) {
     file_to_import <- paste(base_dir, file, sep = '')
     file_data <- import_generic(file_to_import, data$subj_list)

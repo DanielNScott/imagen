@@ -52,7 +52,9 @@ level_wrapper <- function(data, title, ylabel = '', legend = 'value') {
 # ------------------------------------------------------------------------------ #
 # Wrapper for density plots
 # ------------------------------------------------------------------------------ #
-density_wrapper <- function(data, names, title, xlabel = NULL, ylabel = NULL, facet_labels = NULL) {
+density_wrapper <- function(data, names, title, xlabel = NULL, ylabel = NULL,
+                            facet_labels = NULL, density = TRUE, hist = FALSE,
+                            xlims = NULL) {
   library(ggplot2)
   library(reshape2)
 
@@ -60,11 +62,15 @@ density_wrapper <- function(data, names, title, xlabel = NULL, ylabel = NULL, fa
     return(facet_labels[value])
   }
 
-  plot <- ggplot( melt(data[names], id.vars = NULL), aes(x = value)) +
-    geom_density(na.rm = TRUE) +
+  dmelt <- melt(data[names], id.vars = NULL)
+  plot <- ggplot( dmelt, aes(x = value)) +
     xlab(xlabel) + ylab(ylabel) +
     theme( strip.text = element_text(margin = margin(b = 20))) +
     ggtitle(title)
+
+  if (!is.null(xlims)) {plot <- plot + xlim(xlims)}
+  if (hist) {plot <- plot + geom_histogram(data = dmelt, alpha = 0.3)}
+  if (density) {plot <- plot + geom_density(na.rm = TRUE)}
 
   if (!is.null(facet_labels)) {
     plot <- plot + facet_wrap(~variable, scales = "free", labeller = facet_labeller)
