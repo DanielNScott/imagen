@@ -1,346 +1,401 @@
 #!/bin/tcsh -xef
 
+#----------------------------- Settings ------------------------------------#
+set apt = 'BL'                 # Appointment
+set IMTag = ''                 # '' or '_IM' for by-trial regressors
+set IMHRF = 'SPMG1(0)'         # HRF for any by-trial regressors
+set HRF = 'SPMG1(0)'           # HRF for pooled trial regressors
+set statsFlags = ''            # Stats from deconvolves: -fout -tout -rout
+                               # NOTE: needs to be off for extract.sh to work
+                               #       properly
+set do_setup = 1
+set do_preproc = 1
+set do_regress = 1
+set do_postproc = 1
+
+# Since TCSH is a headache to do math in, these need to be set consistently...
+# ... but don't work since afni uses literals to escape regexes (stupid!!!)
 #
-set IMTag = '_IM'              # '' or '_IM' for individual modulation
-set IMHRF = 'SPMG1(0)' #'SPMG1(0)'         # 'SPMG3' or 'SPMG1(0)'
-set HRF = 'SPMG1(0)' #'SPMG1(0)'         # 'SPMG3' or 'SPMG1(0)'
-set statsTags = '-fout -tout'             # '-fout -tout'
-set dataFile = BL_SST.nii.gz
+#set start_tr = 4     # E.g. 4 if skipping 0,1,2,3
+#set trs_left = 440   # total num TRs - start_tr
 
-# Since TCSH is a headache to do math in, these need to be set consistently
-# These don't work since substitution syntax isn't working out for me atm...
-#set start_tr = 4      # E.g. 4 if skipping 0,1,2,3
-#set trs_left = 440    # total num TRs - start_tr
+# This one works:
 set secs_rmed = 4.4   # 2.2*(start_tr)
+#---------------------------------------------------------------------------#
 
-# execute via :
-#   tcsh -xef proc.s01 |& tee output.proc.s01
-
-# =========================== auto block: setup ============================
-# script setup
-
-# take note of the AFNI version
-afni -ver
-
-# check that the current AFNI version is recent enough
-afni_history -check_date 23 Sep 2016
-if ( $status ) then
-    echo "** this script requires newer AFNI binaries (than 23 Sep 2016)"
-    echo "   (consider: @update.afni.binaries -defaults)"
-    exit
-endif
-
-# the user may specify a single subject to run with
-if ( $#argv > 0 ) then
-    set subj = $argv[1]
-else
-    set subj = s01
-endif
-
-# assign output directory name
+set dataFile = ${apt}_SST.nii.gz
 set output_dir = results
 
-# verify that the results directory does not yet exist
-if ( -d $output_dir ) then
-    echo output dir "results" already exists
-    exit
+set subj = 's01'
+set run = '01'
+
+
+if ($do_setup == 1 ) then
+   # =========================== auto block: setup ============================
+   # take note of the AFNI version
+   afni -ver
+
+   # check that the current AFNI version is recent enough
+   afni_history -check_date 23 Sep 2016
+   if ( $status ) then
+       echo "** this script requires newer AFNI binaries (than 23 Sep 2016)"
+       echo "   (consider: @update.afni.binaries -defaults)"
+       exit
+   endif
+
+   # the user may specify a single subject to run with
+   if ( $#argv > 0 ) then
+       set subj = $argv[1]
+   else
+       set subj = s01
+   endif
+
+   # verify that the results directory does not yet exist
+   if ( -d $output_dir ) then
+       echo output dir "results" already exists
+       exit
+   endif
+
+   mkdir $output_dir
+   mkdir $output_dir/plots
+   mkdir $output_dir/regress
+   mkdir $output_dir/preproc
+   mkdir $output_dir/mask_avgs
+   mkdir $output_dir/ideals
+
+   # set list of runs
+   set runs = (`count -digits 2 1 1`)
+
+
+   # ============================ auto block: tcat ============================
+   # apply 3dTcat to copy input dsets to results dir, while
+   # removing the first 2 TRs
+   3dTcat -prefix $output_dir/pb00.$subj.r01.tcat BL_SST.nii.gz'[2..400]'
+
+   # and make note of repetitions (TRs) per run
+   set tr_counts = ( 442 )
+
+   # ======================= Manual block: fix timing  ========================
+   # enter the results directory (can begin processing data)
+   cd $output_dir
+
+   set mask = ROI_masks/All_ROIs.nii.gz
+   set dir1D = 1Ds/
+
+   # Link stuff
+   cp -r ../$dir1D ./
+   ln -s ../ROI_masks
+   ln -s ../$dataFile
+   ln -s ../extract.sh
+
+   foreach f ( ./$dir1D/*.1D )
+       timing_tool.py -timing $f -add_offset -$secs_rmed -write_timing $f
+   end
 endif
 
-mkdir $output_dir
+if ($do_preproc == 1) then
+   # ================================= tshift =================================
+   # time shift data so all slice timing is the same
+   #foreach run ( $runs )
+   #    3dTshift -tzero 0 -quintic -prefix pb01.$subj.r$run.tshift \
+   #             pb00.$subj.r$run.tcat+tlrc
+   #end
 
-# set list of runs
-set runs = (`count -digits 2 1 1`)
+   # --------------------------------
+   # extract volreg registration base
+   #3dbucket -prefix vr_base pb01.$subj.r01.tshift+tlrc"[2]"
 
+   # ================================= volreg =================================
+   # align each dset to base volume
+   #foreach run ( $runs )
+   #    # register each volume to the base
+   #    3dvolreg -verbose -zpad 1 -base vr_base+tlrc                    \
+   #             -1Dfile dfile.r$run.1D -prefix pb02.$subj.r$run.volreg \
+   #             -cubic                                                 \
+   #             pb01.$subj.r$run.tshift+tlrc
+   #end
 
-# ============================ auto block: tcat ============================
-# apply 3dTcat to copy input dsets to results dir, while
-# removing the first 2 TRs
-3dTcat -prefix $output_dir/pb00.$subj.r01.tcat \
-    000020320615_BL_SST.nii.gz'[2..$]'
+   # make a single file of registration params
+   #cat dfile.r*.1D > dfile_rall.1D
 
-# and make note of repetitions (TRs) per run
-set tr_counts = ( 442 )
+   # ================================== blur ==================================
+   # blur each volume of each run
+   #foreach run ( $runs )
+   #    3dmerge -1blur_fwhm 4.0 -doall -prefix pb03.$subj.r$run.blur \
+   #            pb02.$subj.r$run.volreg+tlrc
+   #end
 
-# -------------------------------------------------------
+   # ================================== mask ==================================
+   # create 'full_mask' dataset (union mask)
+   foreach run ( $runs )
+       3dAutomask -dilate 1 -prefix rm.mask_r$run pb00.$subj.r$run.tcat+tlrc
+   end
 
-# enter the results directory (can begin processing data)
-cd $output_dir
+   # create union of inputs, output type is byte
+   3dmask_tool -inputs rm.mask_r*+tlrc.HEAD -union -prefix full_mask.$subj
 
-set mask = ROI_masks/All_ROIs.nii.gz
-set dir1D = 1Ds/
+   # ========================== auto block: outcount ==========================
+   # data check: compute outlier fraction for each volume
+   touch out.pre_ss_warn.txt
+   foreach run ( $runs )
+       3dToutcount -automask -fraction -polort 7 -legendre                     \
+                   pb00.$subj.r$run.tcat+tlrc > outcount.r$run.1D
 
-# Link stuff
-cp -r ../$dir1D ./
-ln -s ../ROI_masks
-ln -s ../$dataFile
-ln -s ../extract.sh
+       # censor outlier TRs per run, ignoring the first 0 TRs
+       # - censor when more than 0.05 of automask voxels are outliers
+       # - step() defines which TRs to remove via censoring
+       1deval -a outcount.r$run.1D -expr "1-step(a-0.05)" > rm.out.cen.r$run.1D
 
-foreach f ( ./$dir1D/*.1D )
-    timing_tool.py -timing $f -add_offset -$secs_rmed -write_timing $f
-end
+       # outliers at TR 0 might suggest pre-steady state TRs
+       if ( `1deval -a outcount.r$run.1D"{0}" -expr "step(a-0.4)"` ) then
+           echo "** TR #0 outliers: possible pre-steady state TRs in run $run" \
+               >> out.pre_ss_warn.txt
+       endif
+   end
 
-# ========================== auto block: outcount ==========================
-# data check: compute outlier fraction for each volume
-touch out.pre_ss_warn.txt
-foreach run ( $runs )
-    3dToutcount -automask -fraction -polort 7 -legendre                     \
-                pb00.$subj.r$run.tcat+tlrc > outcount.r$run.1D
+   # catenate outlier counts into a single time series
+   cat outcount.r*.1D > outcount_rall.1D
 
-    # censor outlier TRs per run, ignoring the first 0 TRs
-    # - censor when more than 0.07 of automask voxels are outliers
-    # - step() defines which TRs to remove via censoring
-    1deval -a outcount.r$run.1D -expr "1-step(a-0.07)" > rm.out.cen.r$run.1D
+   # catenate outlier censor files into a single time series
+   cat rm.out.cen.r*.1D > outcount_${subj}_censor.1D
 
-    # outliers at TR 0 might suggest pre-steady state TRs
-    if ( `1deval -a outcount.r$run.1D"{0}" -expr "step(a-0.4)"` ) then
-        echo "** TR #0 outliers: possible pre-steady state TRs in run $run" \
-            >> out.pre_ss_warn.txt
-    endif
-end
+   # ================== mask out very high variance voxels ===================
+   # old: 'min(200, a/b*100)*step(a)*step(b)'
+   # new: z-score
+   #foreach run ( $runs )
+   #    3dTstat -prefix rm.mean_r$run pb00.$subj.r$run.tcat+tlrc
+   #    3dcalc -a pb00.$subj.r$run.tcat+tlrc -b rm.mean_r$run+tlrc \
+   #           -expr '(a-b)/stdev(b))'                             \
+   #           -prefix pb04.$subj.r$run.scale
+   #end
 
-# catenate outlier counts into a single time series
-cat outcount.r*.1D > outcount_rall.1D
+   # ================================ censor =================================
+   # Would compute motion params here, but we already have them.
 
-# catenate outlier censor files into a single time series
-cat rm.out.cen.r*.1D > outcount_${subj}_censor.1D
+   # create censor file motion_${subj}_censor.1D, for censoring motion
+   1d_tool.py -infile '../motion_demean.1D{2..400}' -set_nruns 1 \
+              -show_censor_count -censor_prev_TR -censor_motion 0.2 motion_${subj}
 
-# Plot the outlier counts
-1dplot -jpeg outliers -one '1D: 442@0.07' outcount_rall.1D
+   # combine multiple censor files
+   1deval -a motion_${subj}_censor.1D -b outcount_${subj}_censor.1D         \
+          -expr "a*b" > censor_${subj}_combined_2.1D
 
-# ================================= tshift =================================
-# time shift data so all slice timing is the same
-#foreach run ( $runs )
-#    3dTshift -tzero 0 -quintic -prefix pb01.$subj.r$run.tshift \
-#             pb00.$subj.r$run.tcat+tlrc
-#end
+   # note TRs that were not censored
+   set ktrs = `1d_tool.py -infile censor_${subj}_combined_2.1D              \
+                          -show_trs_uncensored encoded`
 
-# --------------------------------
-# extract volreg registration base
-#3dbucket -prefix vr_base pb01.$subj.r01.tshift+tlrc"[2]"
+   # ======================== detrend, bandpass  ==============================
+   # 3dTproject dumps time points even when told not to!
+   #3dTproject -polort 7 -prefix detrended \ #-cenmode NTRP -censor censor_${subj}_combined_2.1D \
+   #  -passband 0.01 0.1 -TR 2.2 -input pb00.$subj.r$run.tcat+tlrc
 
-# ================================= volreg =================================
-# align each dset to base volume
-#foreach run ( $runs )
-#    # register each volume to the base
-#    3dvolreg -verbose -zpad 1 -base vr_base+tlrc                    \
-#             -1Dfile dfile.r$run.1D -prefix pb02.$subj.r$run.volreg \
-#             -cubic                                                 \
-#             pb01.$subj.r$run.tshift+tlrc
-#end
+   3dDespike -prefix despike pb00.$subj.r$run.tcat+tlrc
+   3dBandpass -dt 2.2 -nodetrend -band 0.01 9999 -prefix bandpass despike+tlrc
+   3dDetrend -polort 7 -prefix detrend bandpass+tlrc
 
-# make a single file of registration params
-#cat dfile.r*.1D > dfile_rall.1D
-
-# ================================== blur ==================================
-# blur each volume of each run
-#foreach run ( $runs )
-#    3dmerge -1blur_fwhm 4.0 -doall -prefix pb03.$subj.r$run.blur \
-#            pb02.$subj.r$run.volreg+tlrc
-#end
-
-# ================================== mask ==================================
-# create 'full_mask' dataset (union mask)
-foreach run ( $runs )
-    3dAutomask -dilate 1 -prefix rm.mask_r$run pb00.$subj.r$run.tcat+tlrc
-end
-
-# create union of inputs, output type is byte
-3dmask_tool -inputs rm.mask_r*+tlrc.HEAD -union -prefix full_mask.$subj
-
-# ================================= scale ==================================
-# scale each voxel time series to have a mean of 100
-# (be sure no negatives creep in)
-# (subject to a range of [0,200])
-foreach run ( $runs )
-    3dTstat -prefix rm.mean_r$run pb00.$subj.r$run.tcat+tlrc
-    3dcalc -a pb00.$subj.r$run.tcat+tlrc -b rm.mean_r$run+tlrc \
-           -expr 'min(200, a/b*100)*step(a)*step(b)'           \
-           -prefix pb04.$subj.r$run.scale
-end
-
-# ================================ regress =================================
-
-# compute de-meaned motion parameters (for use in regression)
-#1d_tool.py -infile dfile_rall.1D -set_nruns 1                            \
-#           -demean -write motion_demean.1D
-
-# compute motion parameter derivatives (just to have)
-#1d_tool.py -infile dfile_rall.1D -set_nruns 1                            \
-#           -derivative -demean -write motion_deriv.1D
-
-# Plot motion parameters
-1dplot -jpeg motion -volreg ../motion_demean.1D
-
-# Plot motion euclidean norm
-#1dplot motion_FT_enorm.1D
-
-# create censor file motion_${subj}_censor.1D, for censoring motion
-1d_tool.py -infile '../motion_demean.1D{2..$}' -set_nruns 1 \
-           -show_censor_count -censor_prev_TR -censor_motion 0.3 motion_${subj}
-
-# combine multiple censor files
-1deval -a motion_${subj}_censor.1D -b outcount_${subj}_censor.1D         \
-       -expr "a*b" > censor_${subj}_combined_2.1D
-
-# note TRs that were not censored
-set ktrs = `1d_tool.py -infile censor_${subj}_combined_2.1D              \
-                       -show_trs_uncensored encoded`
-
-# ------------------------------
-# run the regression analysis
-3dDeconvolve \
-    -force_TR 2.2 \
-    -mask ${mask}                          \
-    -input pb04.$subj.r*.scale+tlrc.HEAD                                 \
-    -censor censor_${subj}_combined_2.1D                                 \
-    -TR_times 2.2                                                        \
-    -GOFORIT 5 \
-    -polort 7                                                            \
-    -num_stimts 13                                                       \
-    -stim_times 1 ${dir1D}go_success.1D              "${HRF}" -stim_label 1 go_success     \
-    -stim_times${IMTag} 2 ${dir1D}stop_success.1D  "${IMHRF}"   -stim_label 2 stop_success   \
-    -stim_times${IMTag} 3 ${dir1D}stop_failure.1D  "${IMHRF}"   -stim_label 3 stop_failure   \
-    -stim_times 4 ${dir1D}go_failure.1D              "${HRF}" -stim_label 4 go_failure     \
-    -stim_times 5 ${dir1D}go_too_late.1D             "${HRF}" -stim_label 5 go_too_late    \
-    -stim_times 6 ${dir1D}go_wrong_key_response.1D   "${HRF}" -stim_label 6 go_wrong_key   \
-    -stim_times 7 ${dir1D}stop_too_early_response.1D "${HRF}" -stim_label 7 stop_too_early \
-    -stim_file  8 ../motion_demean.1D'[0]' -stim_base 8  -stim_label 8  roll  \
-    -stim_file  9 ../motion_demean.1D'[1]' -stim_base 9  -stim_label 9  pitch \
-    -stim_file 10 ../motion_demean.1D'[2]' -stim_base 10 -stim_label 10 yaw   \
-    -stim_file 11 ../motion_demean.1D'[3]' -stim_base 11 -stim_label 11 dS    \
-    -stim_file 12 ../motion_demean.1D'[4]' -stim_base 12 -stim_label 12 dL    \
-    -stim_file 13 ../motion_demean.1D'[5]' -stim_base 13 -stim_label 13 dP    \
-    -gltsym 'SYM: stop_success - stop_failure'                           \
-    -gltsym 'SYM: stop_success - go_success'                             \
-    -glt_label 1 ss-sf                                                   \
-    -glt_label 2 ss-go                                                   \
-    -jobs 3                                                              \
-    -fout -tout -x1D X.xmat.1D -xjpeg X.jpg                              \
-    -x1D_uncensored X.nocensor.xmat.1D                                   \
-    -fitts fitts.$subj                                                   \
-    -errts errts.${subj}                                                 \
-    -bucket stats.$subj
-
-# Plot X.mat
-#1dplot X.xmat.1D
-1dplot -jpeg xmat_stims  X.xmat.1D'[8..13$]'
-
-# if 3dDeconvolve fails, terminate the script
-if ( $status != 0 ) then
-    echo '---------------------------------------'
-    echo '** 3dDeconvolve error, failing...'
-    echo '   (consider the file 3dDeconvolve.err)'
-    exit
+   # ================================= scale ==================================
+   # old: 'min(200, a/b*100)*step(a)*step(b)'
+   # new: z-score
+   foreach run ( $runs )
+       3dTstat -prefix mean detrend+tlrc
+       3dTstat -prefix stdev -stdev detrend+tlrc
+       3dcalc -a detrend+tlrc -b mean+tlrc -c stdev+tlrc -expr '(a-b)/c' -prefix zscored
+   end
 endif
 
+if ($do_regress == 1) then
+   # ================================ regress =================================
+   3dDeconvolve \
+       -force_TR 2.2 \
+       -mask ${mask}                          \
+       -input zscored+tlrc \  #pb04.$subj.r*.scale+tlrc.HEAD                                 \
+       -censor censor_${subj}_combined_2.1D                                 \
+       -TR_times 2.2                                                        \
+       -GOFORIT 20 \
+       -polort 0                                                            \
+       -num_stimts 13                                                       \
+       -stim_times 1 ${dir1D}go_success.1D              "${HRF}" -stim_label 1 go_success     \
+       -stim_times${IMTag} 2 ${dir1D}stop_success.1D  "${IMHRF}" -stim_label 2 stop_success   \
+       -stim_times${IMTag} 3 ${dir1D}stop_failure.1D  "${IMHRF}" -stim_label 3 stop_failure   \
+       -stim_times 4 ${dir1D}go_failure.1D              "${HRF}" -stim_label 4 go_failure     \
+       -stim_times 5 ${dir1D}go_too_late.1D             "${HRF}" -stim_label 5 go_too_late    \
+       -stim_times 6 ${dir1D}go_wrong_key_response.1D   "${HRF}" -stim_label 6 go_wrong_key   \
+       -stim_times 7 ${dir1D}stop_too_early_response.1D "${HRF}" -stim_label 7 stop_too_early \
+       -stim_file  8 ../motion_demean.1D'[0]' -stim_base 8  -stim_label 8  roll  \
+       -stim_file  9 ../motion_demean.1D'[1]' -stim_base 9  -stim_label 9  pitch \
+       -stim_file 10 ../motion_demean.1D'[2]' -stim_base 10 -stim_label 10 yaw   \
+       -stim_file 11 ../motion_demean.1D'[3]' -stim_base 11 -stim_label 11 dS    \
+       -stim_file 12 ../motion_demean.1D'[4]' -stim_base 12 -stim_label 12 dL    \
+       -stim_file 13 ../motion_demean.1D'[5]' -stim_base 13 -stim_label 13 dP    \
+       -gltsym 'SYM: stop_success - stop_failure'                           \
+       -gltsym 'SYM: stop_success - go_success'                             \
+       -glt_label 1 ss-sf                                                   \
+       -glt_label 2 ss-go                                                   \
+       -jobs 3                                                              \
+       ${statsFlags} -x1D X.xmat.1D -xjpeg X.jpg                              \
+       -x1D_uncensored X.nocensor.xmat.1D                                   \
+       -fitts fitts.$subj                                                   \
+       -errts errts.${subj}                                                 \
+       -bucket stats.$subj
 
-# display any large pairwise correlations from the X-matrix
-1d_tool.py -show_cormat_warnings -infile X.xmat.1D |& tee out.cormat_warn.txt
 
-# -- execute the 3dREMLfit script, written by 3dDeconvolve --
-#tcsh -x stats.REML_cmd
-3dREMLfit -matrix X.xmat.1D -input pb04.s01.r01.scale+tlrc.HEAD \
- -fout -tout -Rbuck stats.s01_REML -Rvar stats.s01_REMLvar \
- -mask ${mask} -GOFORIT 5 -Rfitts fitts.s01_REML -Rerrts errts.s01_REML -verb $*
+   # if 3dDeconvolve fails, terminate the script
+   if ( $status != 0 ) then
+       echo '---------------------------------------'
+       echo '** 3dDeconvolve error, failing...'
+       echo '   (consider the file 3dDeconvolve.err)'
+       exit
+   endif
 
-bash extract.sh
 
-# if 3dREMLfit fails, terminate the script
-if ( $status != 0 ) then
-    echo '---------------------------------------'
-    echo '** 3dREMLfit error, failing...'
-    exit
+   # display any large pairwise correlations from the X-matrix
+   1d_tool.py -show_cormat_warnings -infile X.xmat.1D |& tee out.cormat_warn.txt
+
+   # -- execute the 3dREMLfit script, written by 3dDeconvolve --
+   #tcsh -x stats.REML_cmd
+   3dREMLfit -matrix X.xmat.1D -input zscored+tlrc \
+             ${statsFlags} -Rbuck stats.s01_REML -Rvar stats.s01_REMLvar \
+             -mask ${mask} -GOFORIT 20 -Rfitts fitts.s01_REML -Rerrts errts.s01_REML -verb $*
 endif
 
+if ($do_postproc == 1) then
+   # ============================= dump betas ===============================
+   # Remove any old stats dump file.
+   rm stats_masked.out L_* R_*
 
-# create an all_runs dataset to match the fitts, errts, etc.
-3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
+   # Set ROIs
+   rois=(R_IFG R_preSMA R_Caudate_AAL R_GPe R_GPi R_STN R_Thalamus_AAL R_NAcc R_AAL_ACC L_AAL_ACC)
 
-# --------------------------------------------------
-# create a temporal signal to noise ratio dataset
-#    signal: if 'scale' block, mean should be 100
-#    noise : compute standard deviation of errts
-3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
-3dTstat -stdev -prefix rm.noise.all errts.${subj}_REML+tlrc"[$ktrs]"
-3dcalc -a rm.signal.all+tlrc                                             \
-       -b rm.noise.all+tlrc                                              \
-       -c full_mask.$subj+tlrc                                           \
-       -expr 'a/b' -prefix TSNR.$subj
+   # Cycle through ROIs and extract betas
+   foreach mask ${rois[@]}
+      echo "#--------------------------------------------------------------------#"
+      echo "  Dumping stats for voxels from ${mask} mask."
+      echo "#--------------------------------------------------------------------#"
+      rm zyxt+tlrc.*
+      rm fstat_mask_${mask}*
 
-# ---------------------------------------------------
-# compute and store GCOR (global correlation average)
-# (sum of squares of global mean of unit errts)
-3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}_REML+tlrc
-3dmaskave -quiet -mask full_mask.$subj+tlrc rm.errts.unit+tlrc           \
-          > gmean.errts.unit.1D
-3dmaskave -quiet rm.errts.unit+tlrc           \
-          > gmean.errts.unit.1D
-3dTstat -sos -prefix - gmean.errts.unit.1D\' > out.gcor.1D
-echo "-- GCOR = `cat out.gcor.1D`"
+      # Compute mask with full F-statistic q < 0.05
+      3dFDR -input stats.s01_REML+tlrc.HEAD'[0]' -qval  -mask_file ROI_masks/${mask}.nii.gz
+      3dcalc -a zyxt+tlrc.BRIK'[0]' -expr 'step(0.1-a)' -prefix fstat_mask_${mask}
 
-# ---------------------------------------------------
-# compute correlation volume
-# (per voxel: average correlation across masked brain)
-# (now just dot product with average unit time series)
-3dcalc -a rm.errts.unit+tlrc -b gmean.errts.unit.1D -expr 'a*b' -prefix rm.DP
-3dTstat -sum -prefix corr_brain rm.DP+tlrc
+      # Get average stats over the mask, but only for beta values (sub-briks 1,3,...,17)
+      3dmaskave -quiet -mask fstat_mask_${mask}+tlrc.BRIK.gz stats.s01_REML+tlrc.BRIK.gz'[1..$(2)]' \
+      | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked.out
 
-# create ideal files for fixed response stim types
-1dcat X.nocensor.xmat.1D'[4]' > ideal_go_success.1D
-1dcat X.nocensor.xmat.1D'[5]' > ideal_go_failure.1D
-1dcat X.nocensor.xmat.1D'[6]' > ideal_stop_success.1D
-1dcat X.nocensor.xmat.1D'[7]' > ideal_stop_failure.1D
-1dcat X.nocensor.xmat.1D'[8]' > ideal_go_too_late.1D
-1dcat X.nocensor.xmat.1D'[9]' > ideal_go_wrong_key.1D
-1dcat X.nocensor.xmat.1D'[10]' > ideal_stop_too_early.1D
+      # Insert a newline after each ROI
+      printf '\n' >> stats_masked.out
 
-# --------------------------------------------------------
-# compute sum of non-baseline regressors from the X-matrix
-# (use 1d_tool.py to get list of regressor colums)
-set reg_cols = `1d_tool.py -infile X.nocensor.xmat.1D -show_indices_interest`
-3dTstat -sum -prefix sum_ideal.1D X.nocensor.xmat.1D"[$reg_cols]"
+      # Create roi response and fit
+      3dmaskave -quiet -mask fstat_mask_${mask}+tlrc.BRIK.gz zscored+tlrc.BRIK > ${mask}_ave.1D
+      3dmaskave -quiet -mask fstat_mask_${mask}+tlrc.BRIK.gz fitts.s01_REML+tlrc.BRIK.gz > ${mask}_fitts.1D
+   end
 
-# also, create a stimulus-only X-matrix, for easy review
-1dcat X.nocensor.xmat.1D"[$reg_cols]" > X.stim.xmat.1D
+   # Create copies
+   mv stats_masked.out stats_masked.out.bckp
+   cp stats_masked.out.bckp ../stats_masked.out
 
-# ================== auto block: generate review scripts ===================
+   # Old snippets:
 
-# generate a review script for the unprocessed EPI data
-gen_epi_review.py -script @epi_review.$subj \
-    -dsets pb00.$subj.r*.tcat+tlrc.HEAD
+   #
+   # Remove the pesky F-statistic in the middle of the stop-condition block...
+   # Applies when using SPMGX with X > 1
+   #
+   #3dinfo -verb stats.subj_REML+tlrc.HEAD > 3dinfo.txt
+   #badCol=`grep 'stop_success_Fstat' 3dinfo.txt | cut -d ' ' -f 6 | tr '#' ' '`
+   #let "badCol=${badCol}+1"
+   #cut -d ' ' -f ${badCol} stats_masked.out.bckp --complement > stats_masked.out
+   #cp stats_masked.out ../
 
-# generate scripts to review single subject results
-# (try with defaults, but do not allow bad exit status)
-gen_ss_review_scripts.py -mot_limit 0.3 -out_limit 0.07 -exit0
+   #
+   # Cluster tool for selecting functional ROIs
+   #
+   #3dclust -savemask clust_mask -1clip 0.95 -NN3 1 FFDRq.s01_REML+tlrc.BRIK.gz'[0]'
+   #3dmask_tool -inputs cluster_mask+tlrc.HEAD ROI_masks/${mask}.nii.gz -intersection -prefix ${mask}_cluster_mask
 
-# ========================== auto block: finalize ==========================
+   # ======================= auto block: post proc ==========================
+   #
+   # if 3dREMLfit fails, terminate the script
+   if ( $status != 0 ) then
+       echo '---------------------------------------'
+       echo '** 3dREMLfit error, failing...'
+       exit
+   endif
 
-# remove temporary files
-\rm -f rm.*
+   # create an all_runs dataset to match the fitts, errts, etc.
+   3dTcat -prefix all_runs.$subj zscored+tlrc.HEAD #pb04.$subj.r*.scale+tlrc.HEAD
 
-# if the basic subject review script is here, run it
-# (want this to be the last text output)
-if ( -e @ss_review_basic ) ./@ss_review_basic |& tee out.ss_review.$subj.txt
+   # --------------------------------------------------
+   # create a temporal signal to noise ratio dataset
+   #    signal: if 'scale' block, mean should be 100
+   #    noise : compute standard deviation of errts
+   3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
+   3dTstat -stdev -prefix rm.noise.all errts.${subj}_REML+tlrc"[$ktrs]"
+   3dcalc -a rm.signal.all+tlrc                                             \
+          -b rm.noise.all+tlrc                                              \
+          -c full_mask.$subj+tlrc                                           \
+          -expr 'c*a/b' -prefix TSNR.$subj
 
-# return to parent directory
-cd ..
+   # ---------------------------------------------------
+   # compute and store GCOR (global correlation average)
+   # (sum of squares of global mean of unit errts)
+   3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}_REML+tlrc
+   3dmaskave -quiet -mask full_mask.$subj+tlrc rm.errts.unit+tlrc           \
+             > gmean.errts.unit.1D
+   3dmaskave -quiet rm.errts.unit+tlrc           \
+             > gmean.errts.unit.1D
+   3dTstat -sos -prefix - gmean.errts.unit.1D\' > out.gcor.1D
+   echo "-- GCOR = `cat out.gcor.1D`"
 
-echo "execution finished: `date`"
+   # ---------------------------------------------------
+   # compute correlation volume
+   # (per voxel: average correlation across masked brain)
+   # (now just dot product with average unit time series)
+   3dcalc -a rm.errts.unit+tlrc -b gmean.errts.unit.1D -expr 'a*b' -prefix rm.DP
+   3dTstat -sum -prefix corr_brain rm.DP+tlrc
 
+   # create ideal files for fixed response stim types
+   1dcat X.nocensor.xmat.1D'[4]' > ideal_go_success.1D
+   1dcat X.nocensor.xmat.1D'[5]' > ideal_go_failure.1D
+   1dcat X.nocensor.xmat.1D'[6]' > ideal_stop_success.1D
+   1dcat X.nocensor.xmat.1D'[7]' > ideal_stop_failure.1D
+   1dcat X.nocensor.xmat.1D'[8]' > ideal_go_too_late.1D
+   1dcat X.nocensor.xmat.1D'[9]' > ideal_go_wrong_key.1D
+   1dcat X.nocensor.xmat.1D'[10]' > ideal_stop_too_early.1D
 
+   # --------------------------------------------------------
+   # compute sum of non-baseline regressors from the X-matrix
+   # (use 1d_tool.py to get list of regressor colums)
+   set reg_cols = `1d_tool.py -infile X.nocensor.xmat.1D -show_indices_interest`
+   3dTstat -sum -prefix sum_ideal.1D X.nocensor.xmat.1D"[$reg_cols]"
 
+   # also, create a stimulus-only X-matrix, for easy review
+   1dcat X.nocensor.xmat.1D"[$reg_cols]" > X.stim.xmat.1D
 
-# ==========================================================================
-# script generated by the command:
-#
-# afni_proc.py -subj_id s01 -dsets 000020320615_BL_SST.nii.gz                \
-#     -tcat_remove_first_trs 2 -regress_stim_times 1Ds/stim1_go_success.1D   \
-#     1Ds/stim2_go_failure.1D 1Ds/stim3_stop_success.1D                      \
-#     1Ds/stim4_stop_failure.1D 1Ds/stim5_go_too_late.1D                     \
-#     1Ds/stim6_go_wrong_key.1D 1Ds/stim7_stop_too_early.1D                  \
-#     -regress_stim_labels go_success go_failure stop_success stop_failure   \
-#     go_too_late go_wrong_key stop_too_early -regress_basis 'SPMG1(0)'      \
-#     -regress_opts_3dD -gltsym 'SYM: stop_success - stop_failure' -gltsym   \
-#     'SYM: stop_success - go_success' -glt_label 1 ss-sf -glt_label 2 ss-go \
-#     -jobs 3 -regress_reml_exec -regress_make_ideal_sum sum_ideal.1D        \
-#     -regress_censor_outliers 0.07 -regress_censor_motion 0.3
+   # ================== auto block: generate review scripts ===================
+
+   # generate a review script for the unprocessed EPI data
+   gen_epi_review.py -script @epi_review.$subj \
+       -dsets pb00.$subj.r*.tcat+tlrc.HEAD
+
+   # generate scripts to review single subject results
+   # (try with defaults, but do not allow bad exit status)
+   gen_ss_review_scripts.py -mot_limit 0.3 -out_limit 0.07 -exit0
+
+   # ========================== auto block: finalize ==========================
+
+   # remove temporary files
+   \rm -f rm.*
+
+   # if the basic subject review script is here, run it
+   # (want this to be the last text output)
+   if ( -e @ss_review_basic ) ./@ss_review_basic |& tee out.ss_review.$subj.txt
+
+   # return to parent directory
+   cd ..
+
+   # more and better plots...
+   matlab -nosplash -nodisplay -r "addpath(genpath('../../../fmri')); plot_diagnostics; exit"
+
+   echo "execution finished: `date`"
+endif
+
