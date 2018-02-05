@@ -2,10 +2,11 @@
 
 #----------------------------- Settings ------------------------------------#
 apt='BL'                 # Appointment
-IMTag=''                 # '' or '_IM' for by-trial regressors
+IMTagSS='_IM'            # '' or '_IM' for by-trial regressors, Stop Success
+IMTagSF=''               # '' or '_IM' for by-trial regressors, Stop Failure
 IMHRF='SPMG1(0)'         # HRF for any by-trial regressors
 HRF='SPMG1(0)'           # HRF for pooled trial regressors
-njobs=2                  # 
+njobs=2                  #
 REML='_REML'             # Use REML or deconvolve output? Set to: '' or '_REML'
 qval=0.84                # q=0.84 ~ p=0.05 (uncorrected) for full F-stat
 
@@ -37,7 +38,7 @@ imagen_path='/users/dscott3/projects/imagen/'
 #---------------------------------------------------------------------------#
 
 dataFile=${apt}_SST.nii.gz
-output_dir=results_${apt}
+output_dir=results_${apt}${IMTagSS}
 
 mask=ROI_masks/All_ROIs.nii.gz
 dir1D=1Ds_${apt}/
@@ -172,8 +173,8 @@ if [ $do_regress = 1 ]; then
        -num_stimts 14                                                       \
        -censor censor_combined.1D                                 \
        -stim_times 1 ${dir1D}go_success.1D              "${HRF}" -stim_label 1 go_success     \
-       -stim_times${IMTag} 2 ${dir1D}stop_success.1D  "${IMHRF}" -stim_label 2 stop_success   \
-       -stim_times${IMTag} 3 ${dir1D}stop_failure.1D  "${IMHRF}" -stim_label 3 stop_failure   \
+       -stim_times${IMTagSS} 2 ${dir1D}stop_success.1D  "${IMHRF}" -stim_label 2 stop_success   \
+       -stim_times${IMTagSF} 3 ${dir1D}stop_failure.1D  "${IMHRF}" -stim_label 3 stop_failure   \
        -stim_times 4 ${dir1D}go_failure.1D              "${HRF}" -stim_label 4 go_failure     \
        -stim_times 5 ${dir1D}go_too_late.1D             "${HRF}" -stim_label 5 go_too_late    \
        -stim_times 6 ${dir1D}go_wrong_key_response.1D   "${HRF}" -stim_label 6 go_wrong_key   \
@@ -308,7 +309,7 @@ if [ $do_postproc = 1 ]; then
 
    # more and better plots...
    matlab -nosplash -nodisplay -r "addpath(genpath('${imagen_path}')); plot_diagnostics; exit"
-   
+
    # return to parent directory
    cd ..
 
