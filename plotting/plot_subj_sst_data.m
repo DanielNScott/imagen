@@ -49,7 +49,7 @@ no_resp_line = plot(trial, ssd, 'om');
 %Y = [100, 900];
 %for i = 1:length(no_response_inds)
 %    X = repmat(no_response_inds(i),2,1);
-%    no_resp_line = line(X, Y);
+    %no_resp_line = line(X, Y);
 %end
 
 % Plot errors of omission
@@ -61,6 +61,7 @@ for i = 1:length(eoo_inds)
     X = repmat(eoo_inds(i),2,1);
     eoo_line = line(X, Y, 'Color', [1,0,0,0.4]);
 end
+plot(eoo_inds, repmat(15,1,length(eoo_inds)), 'xk')
 
 npts = 7;
 avg = movmean(rt, npts, 'omitnan');
@@ -104,27 +105,26 @@ legend([rt_plot, eoc_plot, no_resp_line, eoo_line, avg_plt] ...
 %xlim([trial(1), trial(end)])
 
 % Histograms and bar plots:
+
+% SSDs
 plot_num = nplts_time*ncols_bar + 1;
 subplot(nrows, ncols_bar, plot_num)
-histogram(ssd(isnan(rt)))
-title('Successful Stop SSDs')
+hold on
+histogram(ssd(isnan(rt)), 'FaceAlpha', 0.3)
+histogram(ssd(eoc_inds) , 'FaceAlpha', 0.3)
+hold off
+title('SSDs')
 xlabel('time [ms]')
 ylabel('count')
+legend({'Stop Success', 'Stop Failure'})
 
-plot_num = plot_num + 1;
-subplot(nrows, ncols_bar, plot_num)
-histogram(ssd(eoc_inds))
-title('Error of Comission SSDs')
-xlabel('time [ms]')
-ylabel('count')
-
-
-plot_num = plot_num + 1;
-subplot(nrows, ncols_bar, plot_num)
-histogram(rt(eoc_inds) - ssd(eoc_inds))
-title('Error of Comission RT - SSD')
-xlabel('time [ms]')
-ylabel('count')
+% Error of Commision: RT - SSD
+%plot_num = plot_num + 1;
+%subplot(nrows, ncols_bar, plot_num)
+%histogram(rt(eoc_inds) - ssd(eoc_inds))
+%title('Error of Comission RT - SSD')
+%xlabel('time [ms]')
+%ylabel('count')
 
 % Go trial reaction times
 plot_num = plot_num + 1;
@@ -162,6 +162,26 @@ title('Empirical P(stop failure)')
 xlabel('SSD [ms]')
 ylabel('probability')
 
+% Calculate some SSRT measures, such as SSRT_med
+% Ref:
+% Band, G. P., Van Der Molen, M. W., & Logan, G. D. (2003).
+% Horse-race model simulations of the stop-signal procedure.
+% Acta Psychologica, 112(2), 105–142.
+%
+% Here I use logistic regression rather than linear regression to establish
+% 50% response rate SSD.
+
+plot_num = plot_num + 1;
+subplot(nrows, ncols_bar, plot_num)
+SSRT_med = nanmedian(rt(~ss_presented)) - ...
+    mean(fit_pts((fit_curve - 0.5).^2 < 0.005));
+
+bar(1, SSRT_med)
+set(get(gca,'Children'),'FaceColor', [0, 0.4470, 0.7410])
+set(get(gca,'Children'),'FaceAlpha', 0.6)
+ylim([0,500])
+title('SSRTs')
+
 % Box-plots of stop-aligned RTs
 maxlag = 7;
 bin = zeros(ntrials,1);
@@ -190,6 +210,7 @@ eoc_med  = nanmedian(rt(eoc_inds));
 line([0, maxlag+1], [glob_med, glob_med], 'LineStyle', '--', 'Color', 'b')
 line([0, maxlag+1], [eoc_med, eoc_med], 'LineStyle', '-.', 'Color', 'r')
 hold off
+legend({'Median RT', 'Median EOC'}, 'Location', 'SouthEast')
 
 % Increases and decreases
 glob_std = nanstd(rt);
@@ -209,26 +230,7 @@ set(gca, 'XGrid', 'on')
 set(gca, 'YGrid', 'on')
 title('\Delta RT relative to prev. trial')
 xlabel('Consecutive go trials')
-ylabel('coeff. of variation []')
-
-% Calculate some SSRT measures, such as SSRT_med
-% Ref:
-% Band, G. P., Van Der Molen, M. W., & Logan, G. D. (2003).
-% Horse-race model simulations of the stop-signal procedure.
-% Acta Psychologica, 112(2), 105–142.
-%
-% Here I use logistic regression rather than linear regression to establish
-% 50% response rate SSD.
-
-plot_num = plot_num + 1;
-subplot(nrows, ncols_bar, plot_num)
-SSRT_med = nanmedian(rt(~ss_presented)) - ...
-    mean(fit_pts((fit_curve - 0.5).^2 < 0.005));
-
-bar(1, SSRT_med)
-set(get(gca,'Children'),'FaceColor', [0, 0.4470, 0.7410])
-set(get(gca,'Children'),'FaceAlpha', 0.6)
-ylim([0,500])
+ylabel('c.v.')
 
 % Widen figure
 set(gcf,'Position', [1           1        1920         995])

@@ -5,7 +5,7 @@
 # - read_all_stats
 
 #-----------------------------------------------------------------------#
-write_stim_1D <- function(task_data, subj_dir, ag = FALSE) {
+write_stim_1D <- function(task_data, subj_dir, visit, ag = FALSE) {
   # Writes a set of AFNI .1D stimulus files for the SST.
   #
   # Args:
@@ -74,7 +74,7 @@ write_stim_1D <- function(task_data, subj_dir, ag = FALSE) {
     # Determine the set of times this event ocurred
     event_mask  <- (task_data['Response.Outcome'] == stim)
     event_times <- t(task_data[event_mask, 'Trial.Start.Time..Onset.']) / 1000
-    event_fname <- paste(subj_dir, '/1Ds/', tolower(stim), '.1D', sep = '')
+    event_fname <- paste(subj_dir, '/1Ds_', visit, '/', tolower(stim), '.1D', sep = '')
     #print(times[length(times)])
 
     if (length(event_times) != 0) {
@@ -89,7 +89,7 @@ write_stim_1D <- function(task_data, subj_dir, ag = FALSE) {
     # Get list of condition times and a filename
     cond_mask  <- (task_data['Response.Outcome'] == stim) & (hand_msk)
     cond_times <- t(task_data[cond_mask, 'Trial.Start.Time..Onset.']) / 1000
-    cond_fname <- paste(subj_dir, '/1Ds/', tolower(stim), hand_abrv, '.1D', sep = '')
+    cond_fname <- paste(subj_dir, '/1Ds_', visit, '/', tolower(stim), hand_abrv, '.1D', sep = '')
 
     if (length(cond_times) != 0) {
       # Write table doesn't work here becauase it inserts row indexing...
@@ -103,8 +103,8 @@ write_stim_1D <- function(task_data, subj_dir, ag = FALSE) {
         for (instance in rep_set) {
           afni_stim_name  <- paste(tolower(stim), hand_abrv, sep = '')
 
-          fname_inst <- paste(subj_dir, '/1Ds/', afni_stim_name, '_', toString(instance), '.1D', sep = '')
-          fname_rest <- paste(subj_dir, '/1Ds/', afni_stim_name, '_', toString(instance), '_rest.1D', sep = '')
+          fname_inst <- paste(subj_dir, '/1Ds_', visit, '/', afni_stim_name, '_', toString(instance), '.1D', sep = '')
+          fname_rest <- paste(subj_dir, '/1Ds_', visit, '/', afni_stim_name, '_', toString(instance), '_rest.1D', sep = '')
 
           this_time   <- cond_times[instance]
           other_times <- cond_times[setdiff(rep_set, instance)]
@@ -143,13 +143,12 @@ write_stim_1D <- function(task_data, subj_dir, ag = FALSE) {
 
 
 #-----------------------------------------------------------------------#
-setup_afni <- function(loc, subj_ids, visit, task = 'SST') {
+setup_afni <- function(loc, subj_ids, task = 'SST') {
   # Sets up the ./data/afni/ file structure so fits can be created.
   #
   # Args:
   #   loc: 'local' or 'cluster' for determining the base-path
   #   subj_ids: the subjects to set up the analysis for
-  #   visit: 'BL' or 'FU2' for 14yo or 18yo (baseline and follow up 2)
   #   task: 'SST' or 'MID' - currently a dummy variable.
   #
   # Returns:
@@ -162,102 +161,100 @@ setup_afni <- function(loc, subj_ids, visit, task = 'SST') {
   #   data from the afni output.
 
   # Assign paths for behavioral, fMRI, and fMRI movement data
-  if (loc == 'local') {
-    base_dir       <- '/home/dan/projects/imagen/'
-    taskdata_dir   <- paste(base_dir, '/data/fmri/', sep = '')
-    timeseries_dir <- paste(base_dir, '/data/fmri/', sep = '')
-    movement_dir   <- paste(base_dir, '/data/fmri/', sep = '')
+  home_dir <- ifelse (loc == 'local', '/home/dan/', '/users/dscott3/')
+  base_dir <- paste(home_dir, 'projects/imagen/', sep='')
 
-  } else {
-    base_dir       <- '/users/dscott3/projects/imagen/'
-    taskdata_dir   <- paste(base_dir, '/data/BL_SST_task/', sep = '')
-    timeseries_dir <- paste(base_dir, '/data/BL_SST_AFNI/', sep = '')
-    movement_dir   <- paste(base_dir, '/data/BL_SST_move/', sep = '')
-  }
-
-  # Either way we'll put things we output under ./data/afni/
+  # We'll put afni files under ./data/afni/
   afni_dir   <- paste(base_dir, '/data/afni/', sep = '')
 
-  # Set filename prefixes and suffixes
-  task_pfx <- 'ss_'
-  fmri_sfx <- '_BL_SST.nii.gz'
-  move_pfx <- 'EPI_stop_'
+  for (visit in c('BL', 'FU2')) {
+    taskdata_dir   <- paste(base_dir, '/data/fmri/', visit, '_SST_task/', sep = '')
+    timeseries_dir <- paste(base_dir, '/data/fmri/', visit, '_SST_AFNI/', sep = '')
+    movement_dir   <- paste(base_dir, '/data/fmri/', visit, '_SST_move/', sep = '')
 
-  # Begin writing shell script (which gets filled out below)
-  # to submit everything to SLURM
-  submitter_fname <- paste(afni_dir, 'submitter.sh', sep='')
-  write('#!/bin/bash \n', file = submitter_fname)
+    # Set filename prefixes and suffixes
+    task_pfx <- 'ss_'
+    fmri_sfx <- paste('_', visit, '_SST.nii.gz', sep = '')
+    move_pfx <- 'EPI_stop_'
 
-  # Setup specific subjects' directories
-  for (subj_id in subj_ids) {
-    # ( subj_ids is a data frame so needs conversion using [[ ]] )
+    # Begin writing shell script (which gets filled out below)
+    # to submit everything to SLURM
+    submitter_fname <- paste(afni_dir, 'submitter_', visit, '.sh', sep='')
+    write('#!/bin/bash \n', file = submitter_fname)
 
-    # Convert subject id to appropriate string
-    subj_id_str <- formatC(subj_id, width = 12, format = 'd', flag = '0')
+    # Setup specific subjects' directories
+    for (subj_id in subj_ids) {
+      # ( subj_ids is a data frame so needs conversion using [[ ]] )
 
-    # Filename beurocracy...
-    fmri_fname <- paste(subj_id_str, fmri_sfx, sep = '')
-    task_fname <- paste(task_pfx, subj_id_str, '.csv', sep = '')
-    move_fname <- paste(move_pfx, subj_id_str, '.txt', sep = '')
+      # Convert subject id to appropriate string
+      subj_id_str <- formatC(subj_id, width = 12, format = 'd', flag = '0')
 
-    fmri_full_name <- paste(timeseries_dir, fmri_fname, sep = '')
-    task_full_name <- paste(taskdata_dir  , task_fname, sep = '')
-    move_full_name <- paste(movement_dir  , move_fname, sep = '')
+      # Filename beurocracy...
+      fmri_fname <- paste(subj_id_str, fmri_sfx, sep = '')
+      task_fname <- paste(task_pfx, subj_id_str, '.csv', sep = '')
+      move_fname <- paste(move_pfx, subj_id_str, '.txt', sep = '')
 
-    # Read the SST series
-    if (file.exists(task_full_name)) {
-      # Only want to read 2 columns, trial time and outcome
-      # ToDo: Figure out why there are 4 here.
-      # ToDo: Collapse stop-too-early into go condition
-      cols <- c('NULL','NULL','numeric','NULL','NULL',NA    ,'NULL','NULL',
-                'NULL','NULL','NULL'   , NA   ,'NULL','NULL','NULL','numeric')
+      fmri_full_name <- paste(timeseries_dir, fmri_fname, sep = '')
+      task_full_name <- paste(taskdata_dir  , task_fname, sep = '')
+      move_full_name <- paste(movement_dir  , move_fname, sep = '')
 
-      task_data <- read.csv(file = task_full_name, header = TRUE, sep = '\t',
-       colClasses = cols, skip = 1)
+      # Read the SST series
+      if (file.exists(task_full_name)) {
+        # Only want to read 2 columns, trial time and outcome
+        # ToDo: Figure out why there are 4 here.
+        # ToDo: Collapse stop-too-early into go condition
+        cols <- c('NULL','NULL','numeric','NULL','NULL',NA    ,'NULL','NULL',
+                  'NULL','NULL','NULL'   , NA   ,'NULL','NULL','NULL','numeric')
 
-      print(paste('Successful read of', task_fname))
-    } else {
-      print(paste('File', task_fname, 'does not exist. Aborting setup for this subject.'))
-      next
+        task_data <- read.csv(file = task_full_name, header = TRUE, sep = '\t',
+         colClasses = cols, skip = 1)
+
+        print(paste('Successful read of', task_fname))
+      } else {
+        print(paste('File', task_fname, 'does not exist. Aborting setup for this subject.'))
+        next
+      }
+
+      # Create subjedt directory and 1D directory
+      subj_dir   <- paste(afni_dir, subj_id_str, '_DATA', sep = '')
+      subj_1Ds   <- paste(subj_dir, '/1Ds_', visit, sep = '')
+      dir.create(subj_dir)
+      dir.create(subj_1Ds)
+
+      # Soft link commands
+      proc_fname <- 'process_subj.sh'
+      #wipe_fname <- 'wipe_results.sh'
+      link_cmd1  <- paste('ln -s ', base_dir, '/fmri/', proc_fname, ' ', subj_dir, '/', proc_fname, sep = '')
+      link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
+      link_cmd3  <- paste('cp ', move_full_name, ' ', subj_dir, '/motion_demean_', visit, '.1D', sep = '')
+      link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/', visit, '_SST.nii.gz', sep = '')
+      #link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/deconvolve.sh', sep = '')
+      #link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
+
+      # Create links
+      if (visit == 'BL') {
+        system(link_cmd1)
+        system(link_cmd2)
+      }
+      system(link_cmd3)
+      system(link_cmd4)
+      #system(link_cmd5)
+      #system(link_cmd6)
+
+      # Write the behavioral 1D files
+      write_stim_1D(task_data, subj_dir, visit, ag = TRUE)
+
+      # Create the set of commands associated with entering this directory
+      # and submitting processing for this subject to SLURM
+      jobname  <- paste(subj_id_str, 'glm', sep = '_')
+      cdcmd1   <- paste('cd ', subj_id_str, '_DATA;', sep = '')
+      cdcmd2   <- 'cd ../; sleep 1;'
+      srunpfx  <- 'sbatch -t 0:05:00 -n 1 --nodes 1 --cpus-per-task 1 -J'
+      srun_cmd <- paste(cdcmd1, srunpfx, jobname, 'process_subj.sh ;', cdcmd2, sep = ' ')
+
+      # Append the commands to the mass-submission file
+      write(srun_cmd, file = submitter_fname, append = TRUE)
     }
-
-    # Create subjedt directory and 1D directory
-    subj_dir   <- paste(afni_dir, subj_id_str, '_DATA', sep = '')
-    subj_1Ds   <- paste(subj_dir, '/1Ds', sep = '')
-    dir.create(subj_dir)
-    dir.create(subj_1Ds)
-
-    # Soft link commands
-    proc_fname <- 'process_subj.sh'
-    #wipe_fname <- 'wipe_results.sh'
-    link_cmd1  <- paste('ln -s ', afni_dir, proc_fname, ' ', subj_dir, '/', proc_fname, sep = '')
-    link_cmd2  <- paste('ln -s ', base_dir, '/data/ROI_masks', ' ', subj_dir, '/', 'ROI_masks', sep = '')
-    link_cmd3  <- paste('cp ', move_full_name, ' ', subj_dir, '/motion_demean.1D', sep = '')
-    link_cmd4  <- paste('ln -s ', fmri_full_name, ' ', subj_dir, '/BL_SST.nii.gz', sep = '')
-    #link_cmd5  <- paste('cp    ', afni_dir, 'deconvolve.sh', ' ', subj_dir, '/deconvolve.sh', sep = '')
-    link_cmd6  <- paste('ln -s ', afni_dir, 'extract.sh', ' ', subj_dir, '/', 'extract.sh', sep = '')
-
-    # Create links
-    system(link_cmd1)
-    system(link_cmd2)
-    system(link_cmd3)
-    system(link_cmd4)
-    #system(link_cmd5)
-    system(link_cmd6)
-
-    # Write the behavioral 1D files
-    write_stim_1D(task_data, subj_dir, ag = TRUE)
-
-    # Create the set of commands associated with entering this directory
-    # and submitting processing for this subject to SLURM
-    jobname  <- paste(subj_id_str, 'glm', sep = '_')
-    cdcmd1   <- paste('cd ', subj_id_str, '_DATA;', sep = '')
-    cdcmd2   <- 'cd ../; sleep 1;'
-    srunpfx  <- 'sbatch -t 0:05:00 -n 1 --nodes 1 --cpus-per-task 1 -J'
-    srun_cmd <- paste(cdcmd1, srunpfx, jobname, 'process_subj.sh ;', cdcmd2, sep = ' ')
-
-    # Append the commands to the mass-submission file
-    write(srun_cmd, file = submitter_fname, append = TRUE)
   }
 }
 #-----------------------------------------------------------------------#

@@ -36,7 +36,10 @@ def main():
     "Response Outcome", "Delay"]
 
   # Location of the csv files to be read:
-  data_dir = '/home/dan/projects/imagen/data/archived/recieved/SST/SST_BL_behavioraldata'
+  data_dir = '/home/dan/projects/imagen/data/protected/recieved/SST/SST_BL_behavioraldata'
+
+  # Location of by-subject output:
+  dump_dir = '/home/dan/projects/imagen/data/task_sst/by-subject-14/'
 
   # For the iterator below...
   test_tuple  = (df_test , misc_metrics_test , subj_list_test , 'test' )
@@ -160,6 +163,9 @@ def main():
       cols = ('Subject','no_response_frac', 'pre_signal_frac', 'low_rt_frac')
       row  = [[int(padded_subj_str),no_response_frac,pre_signal_frac,low_rt_frac]]
       misc = pd.concat([misc, pd.DataFrame(data = row, columns = cols)])
+
+      # Save by-subject copy for matlab plotting
+      tmp.to_csv(dump_dir + padded_subj_str + '.csv', index=False)
 
       print('Finished file: ' + file.split('/')[-1] + ' (file num ' + str(f_num) + ')')
 
