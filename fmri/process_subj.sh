@@ -5,18 +5,22 @@ apt='BL'                 # Appointment
 IMTag=''                 # '' or '_IM' for by-trial regressors
 IMHRF='SPMG1(0)'         # HRF for any by-trial regressors
 HRF='SPMG1(0)'           # HRF for pooled trial regressors
-statsFlags=''            # Stats from deconvolves: -fout -tout -rout
-njobs=2                  # NOTE: needs to be off for extract.sh to work properly
+njobs=2                  # 
 REML='_REML'             # Use REML or deconvolve output? Set to: '' or '_REML'
 qval=0.84                # q=0.84 ~ p=0.05 (uncorrected) for full F-stat
+
+# Stats output these need to be set jointly
+statsFlags=''            # Stats from deconvolves: -fout -tout -rout
+statSelector='$(2)'      # Determines how to traverse sub-briks to retrieve beta values
+                         # e.g. $(2): $ indicates 'until the end', 2 is step size
 
 # ROI mask names (.nii.gz)
 rois=(R_IFG R_preSMA R_Caudate R_GPe R_GPi R_STN R_Thal R_NAcc R_ACC L_ACC)
 
 # Control blocks
-do_setup=0
-do_preproc=0
-do_regress=0
+do_setup=1
+do_preproc=1
+do_regress=1
 do_postproc=1
 
 # Since TCSH is a headache to do math in, these need to be consistently...
@@ -27,6 +31,9 @@ do_postproc=1
 
 # This one works:
 shift_stims=-4.4   # 2.2*(start_tr)
+
+# Location of ./imagen/
+imagen_path='/users/dscott3/projects/imagen/'
 #---------------------------------------------------------------------------#
 
 dataFile=${apt}_SST.nii.gz
@@ -52,9 +59,6 @@ if [ $do_setup = 1 ]; then
 
    mkdir $output_dir
    mkdir $output_dir/plots
-   mkdir $output_dir/regress
-   mkdir $output_dir/preproc
-   mkdir $output_dir/mask_avgs
    mkdir $output_dir/ideals
 
    # ============================ auto block: tcat ============================
@@ -71,7 +75,6 @@ if [ $do_setup = 1 ]; then
    cp -r ../${dir1D} ./
    ln -s ../ROI_masks
    ln -s ../$dataFile
-   ln -s ../extract.sh
 
    # 1dcat doesn't work consistently here for some reason... (so need to copy... wtf?)
    cp ../motion_demean_${apt}.1D ./
@@ -233,7 +236,7 @@ if [ $do_postproc = 1 ]; then
       3dcalc -a zyxt+tlrc.BRIK'[0]' -expr "step(${qval}-a)" -prefix fstat_mask_${roi}
 
       # Get average stats over the mask, but only for beta values (sub-briks 1,3,...,17)
-      3dmaskave -quiet -mask fstat_mask_${roi}+tlrc.BRIK.gz stats${REML}+tlrc.BRIK.gz'[1..$(2)]' \
+      3dmaskave -quiet -mask fstat_mask_${roi}+tlrc.BRIK.gz stats${REML}+tlrc.BRIK.gz"[1..${statSelector}]" \
       | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked.out
 
       # Insert a newline after each ROI
@@ -304,8 +307,8 @@ if [ $do_postproc = 1 ]; then
    \rm -f rm.*
 
    # more and better plots...
-   matlab -nosplash -nodisplay -r "addpath(genpath('../../../../fmri')); plot_diagnostics; exit"
-
+   matlab -nosplash -nodisplay -r "addpath(genpath('${imagen_path}')); plot_diagnostics; exit"
+   
    # return to parent directory
    cd ..
 
