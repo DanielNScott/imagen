@@ -179,7 +179,7 @@ setup_afni <- function(loc, subj_ids, task = 'SST') {
 
     # Begin writing shell script (which gets filled out below)
     # to submit everything to SLURM
-    submitter_fname <- paste(afni_dir, 'submitter_', visit, '.sh', sep='')
+    submitter_fname <- paste(afni_dir, 'submitter', '.sh', sep='')
     write('#!/bin/bash \n', file = submitter_fname)
 
     # Setup specific subjects' directories
@@ -209,9 +209,9 @@ setup_afni <- function(loc, subj_ids, task = 'SST') {
         task_data <- read.csv(file = task_full_name, header = TRUE, sep = '\t',
          colClasses = cols, skip = 1)
 
-        print(paste('Successful read of', task_fname))
+        print(paste('Visit ',visit, ': Successful read of ', task_fname, sep = ''))
       } else {
-        print(paste('File', task_fname, 'does not exist. Aborting setup for this subject.'))
+        print(paste('File', task_fname, 'does not exist. Aborting setup.'))
         next
       }
 
@@ -248,7 +248,7 @@ setup_afni <- function(loc, subj_ids, task = 'SST') {
       # and submitting processing for this subject to SLURM
       jobname  <- paste(subj_id_str, 'glm', sep = '_')
       cdcmd1   <- paste('cd ', subj_id_str, '_DATA;', sep = '')
-      cdcmd2   <- 'cd ../; sleep 1;'
+      cdcmd2   <- 'cd ../; sleep 0.5;'
       srunpfx  <- 'sbatch -t 0:05:00 -n 1 --nodes 1 --cpus-per-task 1 -J'
       srun_cmd <- paste(cdcmd1, srunpfx, jobname, 'process_subj.sh ;', cdcmd2, sep = ' ')
 
@@ -261,7 +261,7 @@ setup_afni <- function(loc, subj_ids, task = 'SST') {
 
 
 #-----------------------------------------------------------------------#
-read_stats_dump <- function(subj_dir, ag, hrf) {
+read_stats_dump <- function(subj_dir, ag, hrf, visit) {
   # Reads the file of glm regression weights "stats_masked.out" for the
   # subjects' rois, names the statistics, and (possibly) removes some.
   #
@@ -280,11 +280,11 @@ read_stats_dump <- function(subj_dir, ag, hrf) {
   # Read the results of running AFNI:
   # roi_stats should be a matrix with ROIs as rows and statistics as columns.
 
-  fname     <- paste(subj_dir, 'stats_masked.out', sep = '')
+  fname     <- paste(subj_dir, 'stats_masked_', visit, '.out', sep = '')
   roi_stats <- read.table(fname, sep = ' ', header = FALSE, blank.lines.skip = FALSE)
 
   # Two helper functions
-  paste_fun <- function(x,y) {paste(x, y, sep = '_')}
+  paste_fun <- function(x,y) { ifelse(y!='', paste(x, y, sep = '_'), x)}
   str_outer <- function(x,y) {as.vector(t(outer(x, y, paste_fun)))}
 
   # Throw away some statistics we don't want
@@ -325,10 +325,10 @@ read_stats_dump <- function(subj_dir, ag, hrf) {
   stats <- c('')
 
   # Conditions: Go success, stop success, etc.
-  conds  <- c('gs', 'ss', 'sf', 'gf', 'gtl', 'gwk', 'ste')
+  conds  <- c('go', 'stop', 'sf', 'gf', 'gtl', 'gwk', 'ste')
 
   # The contrasts being computed
-  ctrsts <- c('ss-sf', 'ss-go')
+  ctrsts <- c('ss_sf', 'stop_go')
 
   # These two loops build the long list of names
   #stat_names <- c('all_Fval')
@@ -358,9 +358,17 @@ read_stats_dump <- function(subj_dir, ag, hrf) {
 
   fn   <- function(x,y) { paste(x, y, sep='_') }
   rois  <- c('rIFG', 'rPreSMA', 'rCaudate', 'rGPe', 'rGPi', 'rSTN', 'rThalamus', 'rNAcc', 'rACC', 'lACC')
-  names     <- as.vector(outer(stat_names, rois, fn))
+  names     <- as.vector(outer(rois, stat_names, fn))
   roi_stats <- as.vector(roi_stats)
   names(roi_stats) <- names
+
+  keep <- c('[^p]_go', 'stop\\>', 'stop_go')
+  inds <- c()
+  for (beta in keep) {
+    inds <- c(inds, grep(beta, names))
+  }
+  inds <- unique(sort(inds))
+  roi_stats <- roi_stats[inds]
 
   return(roi_stats)
 }
@@ -368,7 +376,7 @@ read_stats_dump <- function(subj_dir, ag, hrf) {
 
 
 #-----------------------------------------------------------------------#
-read_all_stats <- function(subj_ids, afni_dir, ag = FALSE, hrf) {
+read_all_stats <- function(subj_ids, afni_dir, hrf, visit, ag = FALSE ) {
 
   # Regions of interest
   rois <- c('rIFG', 'rPreSMA', 'rCaudate', 'rGPe', 'rGPi',
@@ -401,7 +409,7 @@ read_all_stats <- function(subj_ids, afni_dir, ag = FALSE, hrf) {
     subj_dir <- paste(afni_dir, subj_id_str, '_DATA/', sep = '')
     # Attempt to read the stats dump file
     tryCatch({
-      stats <- read_stats_dump(subj_dir, ag, hrf)
+      stats <- read_stats_dump(subj_dir, ag, hrf, visit)
 
       if (ag) {
         # ToDo: I should probably save all the stats not just the covar. matrices...

@@ -1,6 +1,6 @@
 
 % Show the figure?
-showfig = 'on';
+showfig = 'off';
 save = 1;
 
 % Read general diagnostics files:
@@ -51,7 +51,7 @@ for roi = rois
 
     % Make it bigger and save.
     set(gcf, 'Position', [100, 208, 1352, 740])
-    if save; saveas(gcf,['plots/fits_', roi, '.png']); end
+    if save; print(gcf,['plots/fits_', roi], '-dpng', '-r300'); end
 end
 
 
@@ -75,7 +75,7 @@ set(h(2), 'YTick', [0,0.5,1,1.5,2,2.5,3])
 
 % Make it bigger and save.
 % set(gcf, 'Position', [100, 208, 1352, 740])
-if save; saveas(gcf,['plots/motion_', roi, '.png']); end
+if save; print(gcf,['plots/motion_', roi], '-dpng', '-r300'); end
 
 % Regressors
 nregressors = 14;
@@ -120,5 +120,5 @@ end
 
 % Make it bigger and save.
 set(gcf, 'Position', [95, 1, 1396, 960])
-if save; saveas(gcf,['plots/regressors.png']); end
+if save; print(gcf, 'plots/regressors', '-dpng', '-r300'); end
 
