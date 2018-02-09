@@ -5,9 +5,10 @@ apt='BL'                 # Appointment
 IMTag=''                 # '' or '_IM' for by-trial regressors
 IMHRF='SPMG1(0)'         # HRF for any by-trial regressors
 HRF='SPMG1(0)'           # HRF for pooled trial regressors
-njobs=2                  # 
+njobs=2                  #
 REML='_REML'             # Use REML or deconvolve output? Set to: '' or '_REML'
-qval=0.84                # q=0.84 ~ p=0.05 (uncorrected) for full F-stat
+#qval=0.84                # q=0.84 ~ p=0.05 (uncorrected) for full F-stat
+pval=0.01                # Threshold for roi voxel extraction
 
 # Stats output these need to be set jointly
 statsFlags=''            # Stats from deconvolves: -fout -tout -rout
@@ -18,9 +19,9 @@ statSelector='$(2)'      # Determines how to traverse sub-briks to retrieve beta
 rois=(R_IFG R_preSMA R_Caudate R_GPe R_GPi R_STN R_Thal R_NAcc R_ACC L_ACC)
 
 # Control blocks
-do_setup=1
-do_preproc=1
-do_regress=1
+do_setup=0
+do_preproc=0
+do_regress=0
 do_postproc=1
 
 # Since TCSH is a headache to do math in, these need to be consistently...
@@ -220,35 +221,77 @@ if [ $do_postproc = 1 ]; then
    # 3dmaskave returns an error when there are no voxels, and csh has no error
    # handling, so use bash to circumvent. tcsh is such a poor choice...
    # Remove any old stats dump file.
-   rm stats_masked.out L_* R_*
+   rm stats_masked*.out L_* R_*
 
-   # Cycle through ROIs and extract betas
+   # Cycle through ROIs and extract betas using F-statistic threshold.
    for roi in ${rois[@]}
    do
+      # Cycle over F-stats.
+      #for fBrik in $(seq 2 2 4)
+      #do
+      # betabrik
+      #let "betaBrik = ${fBrik} - 1"
       echo "#--------------------------------------------------------------------#"
       echo "  Dumping stats for voxels from ${roi} mask."
       echo "#--------------------------------------------------------------------#"
       rm zyxt+tlrc.*
       rm fstat_mask_${roi}*
+      rm *_beta_mask_${roi}*
+
+      # Magic numbers, sorry, see commands.
+      # Go-success will have same dof as every other F-stat assuming same regressors.
+      dof=`3dAttribute BRICK_STATAUX stats_REML+tlrc"[2]" | awk {'print $5'}`
+      fval=`cdf -p2t fift ${pval} 1 ${dof} | awk {'print $3'}`
 
       # Compute mask with full F-statistic q < 0.05
-      3dFDR -input stats${REML}+tlrc.HEAD'[0]' -qval  -mask_file ROI_masks/${roi}.nii.gz
-      3dcalc -a zyxt+tlrc.BRIK'[0]' -expr "step(${qval}-a)" -prefix fstat_mask_${roi}
+      #3dFDR -input stats${REML}+tlrc.HEAD'[0]' -qval  -mask_file ROI_masks/${roi}.nii.gz
 
-      # Get average stats over the mask, but only for beta values (sub-briks 1,3,...,17)
-      3dmaskave -quiet -mask fstat_mask_${roi}+tlrc.BRIK.gz stats${REML}+tlrc.BRIK.gz"[1..${statSelector}]" \
-      | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked.out
+      # Create thresholded f-statistic mask
+      3dcalc -a stats${REML}+tlrc.BRIK'[2..$(2)]'     \
+         -b ROI_masks/${roi}.nii.gz                \
+         -expr "step(a-${fval})*b" -prefix fstat_mask_${roi}${pval}
+
+      # Create positive-beta mask
+      3dcalc -a stats${REML}+tlrc.BRIK'[1..$(2)]'        \
+         -b fstat_mask_${roi}${pval}+tlrc                    \
+         -expr "step(a)*b" -prefix pos_beta_mask_${roi}${pval}
+
+      # Create negative-beta mask (could have inverted pos. but this is cleaner.)
+      3dcalc -a stats${REML}+tlrc.BRIK'[1..$(2)]'        \
+         -b fstat_mask_${roi}${pval}+tlrc                    \
+         -expr "step(-a)*b" -prefix neg_beta_mask_${roi}${pval}
+
+      for regNum in $(seq 1 9)
+      do
+         let "betaNum = regNum*2 - 1"
+         let "regID = regNum - 1"
+         # Get average stats over the mask, but only for beta values
+         3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
+         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
+
+         # Get average stats over the mask, but only for beta values
+         3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
+         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_neg.out
+
+         if [ $regNum -lt 9 ]; then
+            echo -n ',' >> stats_masked_pos.out
+            echo -n ',' >> stats_masked_neg.out
+         fi
+      done
+      #done
 
       # Insert a newline after each ROI
-      printf '\n' >> stats_masked.out
+      printf '\n' >> stats_masked_pos.out
+      printf '\n' >> stats_masked_neg.out
 
       # Create roi response and fit
-      3dmaskave -quiet -mask fstat_mask_${roi}+tlrc.BRIK.gz final+tlrc.BRIK > ${roi}_ave.1D
-      3dmaskave -quiet -mask fstat_mask_${roi}+tlrc.BRIK.gz fitts${REML}+tlrc.BRIK.gz > ${roi}_fitts.1D
+      3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz final+tlrc.BRIK           > ${roi}_pos_ave.1D
+      3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz fitts${REML}+tlrc.BRIK.gz > ${roi}_pos_fitts.1D
    done
 
    # Create copies
-   cp stats_masked.out ../stats_masked_${apt}.out
+   cp stats_masked_pos.out ../stats_masked_pos_${apt}.out
+   cp stats_masked_neg.out ../stats_masked_neg_${apt}.out
 
    # ======================= auto block: post proc ==========================
    #
@@ -260,39 +303,39 @@ if [ $do_postproc = 1 ]; then
    fi
 
    # create an all_runs datato match the fitts, errts, etc.
-   3dTcat -prefix all_runs zscored+tlrc.HEAD
+   #3dTcat -prefix all_runs zscored+tlrc.HEAD
 
    # --------------------------------------------------
    # create a temporal signal to noise ratio dataset
    #    signal: if 'scale' block, mean should be 100
    #    noise : compute standard deviation of errts
    # note TRs that were not censored
-   ktrs=`1d_tool.py -infile censor_combined.1D -show_trs_uncensored encoded`
-
-   3dTstat -mean -prefix rm.signal.all all_runs+tlrc"[$ktrs]"
-   3dTstat -stdev -prefix rm.noise.all errts_REML+tlrc"[$ktrs]"
-   3dcalc -a rm.signal.all+tlrc                                             \
-          -b rm.noise.all+tlrc                                              \
-          -c full_mask+tlrc                                           \
-          -expr 'c*a/b' -prefix TSNR
+   #ktrs=`1d_tool.py -infile censor_combined.1D -show_trs_uncensored encoded`
+   #
+   #3dTstat -mean -prefix rm.signal.all all_runs+tlrc"[$ktrs]"
+   #3dTstat -stdev -prefix rm.noise.all errts_REML+tlrc"[$ktrs]"
+   #3dcalc -a rm.signal.all+tlrc                                             \
+   #       -b rm.noise.all+tlrc                                              \
+   #       -c full_mask+tlrc                                           \
+   #       -expr 'c*a/b' -prefix TSNR
 
    # ---------------------------------------------------
    # compute and store GCOR (global correlation average)
    # (sum of squares of global mean of unit errts)
-   3dTnorm -norm2 -prefix rm.errts.unit errts_REML+tlrc
-   3dmaskave -quiet -mask full_mask+tlrc rm.errts.unit+tlrc           \
-             > gmean.errts.unit.1D
-   3dmaskave -quiet rm.errts.unit+tlrc           \
-             > gmean.errts.unit.1D
-   3dTstat -sos -prefix - gmean.errts.unit.1D\' > out.gcor.1D
-   echo "-- GCOR = `cat out.gcor.1D`"
+   #3dTnorm -norm2 -prefix rm.errts.unit errts_REML+tlrc
+   #3dmaskave -quiet -mask full_mask+tlrc rm.errts.unit+tlrc           \
+   #          > gmean.errts.unit.1D
+   #3dmaskave -quiet rm.errts.unit+tlrc           \
+   #          > gmean.errts.unit.1D
+   #3dTstat -sos -prefix - gmean.errts.unit.1D\' > out.gcor.1D
+   #echo "-- GCOR = `cat out.gcor.1D`"
 
    # ---------------------------------------------------
    # compute correlation volume
    # (per voxel: average correlation across masked brain)
    # (now just dot product with average unit time series)
-   3dcalc -a rm.errts.unit+tlrc -b gmean.errts.unit.1D -expr 'a*b' -prefix rm.DP
-   3dTstat -sum -prefix corr_brain rm.DP+tlrc
+   #3dcalc -a rm.errts.unit+tlrc -b gmean.errts.unit.1D -expr 'a*b' -prefix rm.DP
+   #3dTstat -sum -prefix corr_brain rm.DP+tlrc
 
    # create ideal files for fixed response stim types
    1dcat X.nocensor.xmat.1D'[1]' > ideals/ideal_go_success.1D
@@ -308,7 +351,7 @@ if [ $do_postproc = 1 ]; then
 
    # more and better plots...
    matlab -nosplash -nodisplay -r "addpath(genpath('${imagen_path}')); plot_diagnostics; exit"
-   
+
    # return to parent directory
    cd ..
 
