@@ -1,15 +1,16 @@
 #!/bin/bash
 
 #----------------------------- Settings ------------------------------------#
-apt='FU2'                # Appointment
+apt='BL'                 # Appointment
 IMTagSS=''               # '' or '_IM' for by-trial regressors, Stop Success
 IMTagSF=''               # '' or '_IM' for by-trial regressors, Stop Failure
 IMHRF='SPMG1(0)'         # HRF for any by-trial regressors
 HRF='SPMG1(0)'           # HRF for pooled trial regressors
 njobs=1                  #
 REML='_REML'             # Use REML or deconvolve output? Set to: '' or '_REML'
-pval=1.0                 # Threshold for roi voxel extraction
+pval=0.5                 # Threshold for roi voxel extraction
 statsFlags=''            # Stats from deconvolves: -fout -tout -rout
+bayes=0                  # Use precision-weighted averaging?
 
 # ROI mask names (.nii.gz)
 rois=(R_IFG R_preSMA R_Caudate R_GPe R_GPi R_STN R_Thal R_NAcc R_ACC L_ACC)
@@ -238,8 +239,9 @@ if [ $do_postproc = 1 ]; then
       echo "  Dumping stats for voxels from ${roi} mask."
       echo "#--------------------------------------------------------------------#"
       rm zyxt+tlrc.*
-      rm fstat_mask_${roi}*
-      rm *_beta_mask_${roi}*
+      rm thresh_${roi}*
+      rm pos_thresh_${roi}*
+      rm neg_thresh_${roi}*
 
       # Magic numbers, sorry, see commands.
       # Go-success will have same dof as every other F-stat assuming same regressors.
@@ -252,43 +254,91 @@ if [ $do_postproc = 1 ]; then
       # Create thresholded f-statistic mask
       3dcalc -a stats${REML}+tlrc.BRIK'[2..$(2)]'     \
          -b ROI_masks/${roi}.nii.gz                \
-         -expr "step(a-${fval})*b" -prefix fstat_mask_${roi}${pval}
+         -expr "step(a-${fval})*b" -prefix thresh_${roi}${pval}
 
       # Create positive-beta mask
       3dcalc -a stats${REML}+tlrc.BRIK'[1..$(2)]'        \
-         -b fstat_mask_${roi}${pval}+tlrc                    \
-         -expr "step(a)*b" -prefix pos_beta_mask_${roi}${pval}
+         -b thresh_${roi}${pval}+tlrc                    \
+         -expr "step(a)*b" -prefix pos_thresh_${roi}${pval}
 
       # Create negative-beta mask (could have inverted pos. but this is cleaner.)
       3dcalc -a stats${REML}+tlrc.BRIK'[1..$(2)]'        \
-         -b fstat_mask_${roi}${pval}+tlrc                    \
-         -expr "step(-a)*b" -prefix neg_beta_mask_${roi}${pval}
+         -b thresh_${roi}${pval}+tlrc                    \
+         -expr "step(-a)*b" -prefix neg_thresh_${roi}${pval}
 
-      for regNum in $(seq 1 9)
-      do
-         let "betaNum = regNum*2 - 1"
-         let "regID = regNum - 1"
-         # Get average stats over the mask, but only for beta values
-         3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
-         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
+      if [ ${bayes} = 1 ]; then
+         rm prec_* masked_prec_* wgted_pos_betas* scaled_pos_betas*
 
-         # Get average stats over the mask, but only for beta values
-         3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
-         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_neg.out
+         # Precision-weighted averaging:
+         # Stderr = beta/T  ->  (1/stderr)^2 = (T/beta)^2  ->  prec. = F/(beta^2)
 
-         if [ $regNum -lt 9 ]; then
-            echo -n ',' >> stats_masked_pos.out
-            echo -n ',' >> stats_masked_neg.out
-         fi
-      done
+         # Create weights mask
+         3dcalc -a stats${REML}+tlrc.BRIK'[2..$(2)]'     \
+            -b stats${REML}+tlrc.BRIK'[1..$(2)]'         \
+            -c ROI_masks/${roi}.nii.gz                   \
+            -expr "(a/(b^2))*c" -prefix prec_${roi}${pval}
+
+         # Mask by positive values
+         3dcalc -a pos_thresh_${roi}${pval}+tlrc               \
+            -b prec_${roi}${pval}+tlrc                    \
+            -expr "a*b" -prefix masked_prec_${roi}${pval}
+
+         # Get the normalization factor (sum of weights)
+         sums=`3dmaskave -quiet -mask ROI_masks/${roi}.nii.gz -sum masked_prec_${roi}${pval}+tlrc.BRIK.gz | tr -s '\n' ' '`
+
+         # Generate weighted betas
+         3dcalc -a stats${REML}+tlrc.BRIK'[1..$(2)]'              \
+            -b masked_prec_${roi}${pval}+tlrc           \
+            -expr "a*b" -prefix wgted_pos_betas${roi}${pval}
+
+         for regNum in $(seq 1 9)
+         do
+            rm scaled_pos*
+            let "betaNum = regNum*2 - 1"
+            let "regID = regNum - 1"
+
+            sum=`echo ${sums} | awk {'print $'${regNum}}`
+
+            3dcalc -a wgted_pos_betas${roi}${pval}+tlrc \
+               -expr "a/${sum}" -prefix scaled_pos_betas${roi}${pval}
+
+            # Get average stats over the mask, but only for beta values
+            3dmaskave -quiet -sum scaled_pos_betas${roi}${pval}+tlrc.BRIK.gz"[${regID}]" \
+            | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
+
+            if [ $regNum -lt 9 ]; then
+               echo -n ',' >> stats_masked_pos.out
+               echo -n ',' >> stats_masked_neg.out
+            fi
+         done
+      else
+         for regNum in $(seq 1 9)
+         do
+            let "betaNum = regNum*2 - 1"
+            let "regID = regNum - 1"
+            # Get average stats over the mask, but only for beta values
+            3dmaskave -quiet -mask pos_thresh_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
+            | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
+
+            # Get average stats over the mask, but only for beta values
+            3dmaskave -quiet -mask neg_thresh_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.gz"[${betaNum}]" \
+            | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_neg.out
+
+            if [ $regNum -lt 9 ]; then
+               echo -n ',' >> stats_masked_pos.out
+               echo -n ',' >> stats_masked_neg.out
+            fi
+         done
+      fi
 
       # Insert a newline after each ROI
       printf '\n' >> stats_masked_pos.out
       printf '\n' >> stats_masked_neg.out
 
       # Create roi response and fit
-      3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz final+tlrc.BRIK           > ${roi}_pos_ave.1D
-      3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz fitts${REML}+tlrc.BRIK.gz > ${roi}_pos_fitts.1D
+      # These need updating to play nicely with the precision weighting.
+      #3dmaskave -quiet -mask pos_thresh_${roi}${pval}+tlrc.BRIK.gz final+tlrc.BRIK           > ${roi}_pos_ave.1D
+      #3dmaskave -quiet -mask neg_thresh_${roi}${pval}+tlrc.BRIK.gz fitts${REML}+tlrc.BRIK.gz > ${roi}_pos_fitts.1D
 
       # Create copies
       cp stats_masked_pos.out ../stats_masked_pos_${apt}.out
@@ -313,11 +363,11 @@ if [ $do_postproc = 1 ]; then
 #         let "betaNum = regNum*2 - 1"
 #         let "regID = regNum - 1"
 #         # Get average stats over the mask, but only for beta values
-#         3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
+#         3dmaskave -quiet -mask pos_thresh_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
 #         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
 #
 #         # Get average stats over the mask, but only for beta values
-#         3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
+#         3dmaskave -quiet -mask neg_thresh_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
 #         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_neg.out
 #
 #         if [ $regNum -lt 9 ]; then
