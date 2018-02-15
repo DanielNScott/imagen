@@ -1,20 +1,15 @@
 #!/bin/bash
 
 #----------------------------- Settings ------------------------------------#
-apt='BL'                 # Appointment
-IMTagSS='_IM'            # '' or '_IM' for by-trial regressors, Stop Success
+apt='FU2'                # Appointment
+IMTagSS=''               # '' or '_IM' for by-trial regressors, Stop Success
 IMTagSF=''               # '' or '_IM' for by-trial regressors, Stop Failure
 IMHRF='SPMG1(0)'         # HRF for any by-trial regressors
 HRF='SPMG1(0)'           # HRF for pooled trial regressors
-njobs=2                  #
+njobs=1                  #
 REML='_REML'             # Use REML or deconvolve output? Set to: '' or '_REML'
-#qval=0.84                # q=0.84 ~ p=0.05 (uncorrected) for full F-stat
-pval=0.01                # Threshold for roi voxel extraction
-
-# Stats output these need to be set jointly
+pval=1.0                 # Threshold for roi voxel extraction
 statsFlags=''            # Stats from deconvolves: -fout -tout -rout
-statSelector='$(2)'      # Determines how to traverse sub-briks to retrieve beta values
-                         # e.g. $(2): $ indicates 'until the end', 2 is step size
 
 # ROI mask names (.nii.gz)
 rois=(R_IFG R_preSMA R_Caudate R_GPe R_GPi R_STN R_Thal R_NAcc R_ACC L_ACC)
@@ -44,8 +39,15 @@ output_dir=results_${apt}${IMTagSS}
 mask=ROI_masks/All_ROIs.nii.gz
 dir1D=1Ds_${apt}/
 
+# If we're skipping setup, jump to the results dir.
+if [ $do_setup = 0 ] && [ $do_preproc = 0 ]; then
+   echo "Setup and preproc off, entering $output_dir"
+   cd $output_dir
+fi
+
+
 if [ $do_setup = 1 ]; then
-   rm -rf results_${apt}
+   rm -rf results_${apt}${IMTagSS}
 
    # =========================== auto block: setup ============================
    # take note of the AFNI version
@@ -279,7 +281,6 @@ if [ $do_postproc = 1 ]; then
             echo -n ',' >> stats_masked_neg.out
          fi
       done
-      #done
 
       # Insert a newline after each ROI
       printf '\n' >> stats_masked_pos.out
@@ -288,70 +289,47 @@ if [ $do_postproc = 1 ]; then
       # Create roi response and fit
       3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz final+tlrc.BRIK           > ${roi}_pos_ave.1D
       3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz fitts${REML}+tlrc.BRIK.gz > ${roi}_pos_fitts.1D
+
+      # Create copies
+      cp stats_masked_pos.out ../stats_masked_pos_${apt}.out
+      cp stats_masked_neg.out ../stats_masked_neg_${apt}.out
+
+      # create ideal files for fixed response stim types
+      1dcat X.nocensor.xmat.1D'[1]' > ideals/ideal_go_success.1D
+      1dcat X.nocensor.xmat.1D'[2]' > ideals/ideal_stop_success.1D
+      1dcat X.nocensor.xmat.1D'[3]' > ideals/ideal_stop_failure.1D
+      1dcat X.nocensor.xmat.1D'[4]' > ideals/ideal_go_failure.1D
+      1dcat X.nocensor.xmat.1D'[5]' > ideals/ideal_go_too_late.1D
+      1dcat X.nocensor.xmat.1D'[6]' > ideals/ideal_go_wrong_key.1D
+      1dcat X.nocensor.xmat.1D'[7]' > ideals/ideal_stop_too_early.1D
+
+      # more and better plots...
+      #matlab -nosplash -nodisplay -r "addpath(genpath('${imagen_path}')); plot_diagnostics; exit"
    done
 
-   # Create copies
-   cp stats_masked_pos.out ../stats_masked_pos_${apt}.out
-   cp stats_masked_neg.out ../stats_masked_neg_${apt}.out
+#if [ $do_postproc = 1 ] & [ $IMTag = '_IM' ]; then
+#      for regNum in $(seq 1 9)
+#      do
+#         let "betaNum = regNum*2 - 1"
+#         let "regID = regNum - 1"
+#         # Get average stats over the mask, but only for beta values
+#         3dmaskave -quiet -mask pos_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
+#         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_pos.out
+#
+#         # Get average stats over the mask, but only for beta values
+#         3dmaskave -quiet -mask neg_beta_mask_${roi}${pval}+tlrc.BRIK.gz"[${regID}]" stats${REML}+tlrc.BRIK.
+#         | tr -s '\n' ' ' | sed -e 's/[[:space:]]*$//' >> stats_masked_neg.out
+#
+#         if [ $regNum -lt 9 ]; then
+#            echo -n ',' >> stats_masked_pos.out
+#            echo -n ',' >> stats_masked_neg.out
+#         fi
+#      done
+#fi
 
-   # ======================= auto block: post proc ==========================
-   #
-   # if 3dREMLfit fails, terminate the script
-   if [ $status != 0 ]; then
-       echo '---------------------------------------'
-       echo '** 3dREMLfit error, failing...'
-       exit
-   fi
 
-   # create an all_runs datato match the fitts, errts, etc.
-   #3dTcat -prefix all_runs zscored+tlrc.HEAD
-
-   # --------------------------------------------------
-   # create a temporal signal to noise ratio dataset
-   #    signal: if 'scale' block, mean should be 100
-   #    noise : compute standard deviation of errts
-   # note TRs that were not censored
-   #ktrs=`1d_tool.py -infile censor_combined.1D -show_trs_uncensored encoded`
-   #
-   #3dTstat -mean -prefix rm.signal.all all_runs+tlrc"[$ktrs]"
-   #3dTstat -stdev -prefix rm.noise.all errts_REML+tlrc"[$ktrs]"
-   #3dcalc -a rm.signal.all+tlrc                                             \
-   #       -b rm.noise.all+tlrc                                              \
-   #       -c full_mask+tlrc                                           \
-   #       -expr 'c*a/b' -prefix TSNR
-
-   # ---------------------------------------------------
-   # compute and store GCOR (global correlation average)
-   # (sum of squares of global mean of unit errts)
-   #3dTnorm -norm2 -prefix rm.errts.unit errts_REML+tlrc
-   #3dmaskave -quiet -mask full_mask+tlrc rm.errts.unit+tlrc           \
-   #          > gmean.errts.unit.1D
-   #3dmaskave -quiet rm.errts.unit+tlrc           \
-   #          > gmean.errts.unit.1D
-   #3dTstat -sos -prefix - gmean.errts.unit.1D\' > out.gcor.1D
-   #echo "-- GCOR = `cat out.gcor.1D`"
-
-   # ---------------------------------------------------
-   # compute correlation volume
-   # (per voxel: average correlation across masked brain)
-   # (now just dot product with average unit time series)
-   #3dcalc -a rm.errts.unit+tlrc -b gmean.errts.unit.1D -expr 'a*b' -prefix rm.DP
-   #3dTstat -sum -prefix corr_brain rm.DP+tlrc
-
-   # create ideal files for fixed response stim types
-   1dcat X.nocensor.xmat.1D'[1]' > ideals/ideal_go_success.1D
-   1dcat X.nocensor.xmat.1D'[2]' > ideals/ideal_stop_success.1D
-   1dcat X.nocensor.xmat.1D'[3]' > ideals/ideal_stop_failure.1D
-   1dcat X.nocensor.xmat.1D'[4]' > ideals/ideal_go_failure.1D
-   1dcat X.nocensor.xmat.1D'[5]' > ideals/ideal_go_too_late.1D
-   1dcat X.nocensor.xmat.1D'[6]' > ideals/ideal_go_wrong_key.1D
-   1dcat X.nocensor.xmat.1D'[7]' > ideals/ideal_stop_too_early.1D
-
-   # remove temporary files
+   # rem ve temporary files
    \rm -f rm.*
-
-   # more and better plots...
-   matlab -nosplash -nodisplay -r "addpath(genpath('${imagen_path}')); plot_diagnostics; exit"
 
    # return to parent directory
    cd ..
